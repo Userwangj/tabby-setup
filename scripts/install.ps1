@@ -173,17 +173,34 @@ function Invoke-PreDownloads {
         if ($download.Count -eq 0) { return }
     }
 
+    # 是否“首次安装”（本地没有任何可用离线包）——首次时优先整包同步，最省事
+    $firstInstall = (@($plan | Where-Object { $_.Cached }).Count -eq 0)
+
+    # 非交互（-Yes）：首次安装直接同步整包，失败再逐项
+    if ($AutoYes -and $firstInstall) {
+        Info '  [首次安装] 从 GitHub Release 同步完整离线包 ...'
+        if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
+        Warn '  未获取到缓存包（可能尚未发布），回退为逐项预下载。'
+    }
+
     if (-not $AutoYes) {
         # 用显式编号 1/2/3，避免误触回车直接开始下载
-        Write-Host '   [1] 逐项预下载缺失离线包（推荐：跳过 winget）'
-        Write-Host '   [2] 从 GitHub Release 拉取完整缓存包'
+        # 首次安装（无离线包）推荐 [1] 整包同步；已有部分离线包时推荐 [2] 逐项
+        if ($firstInstall) {
+            Write-Host '   [1] 从服务器同步完整离线包（GitHub Release：一次性、支持断点续传）（推荐）'
+            Write-Host '   [2] 逐项预下载缺失离线包（跳过 winget）'
+        } else {
+            Write-Host '   [1] 从服务器同步完整离线包（GitHub Release：一次性、支持断点续传）'
+            Write-Host '   [2] 逐项预下载缺失离线包（跳过 winget）（推荐）'
+        }
         Write-Host '   [3] 跳过，边装边下'
-        $choice = Read-Choice -Prompt '   选择 1-3' -Allowed @('1', '2', '3') -DefaultOnFail '1'
+        $default = if ($firstInstall) { '1' } else { '2' }
+        $choice = Read-Choice -Prompt '   选择 1-3' -Allowed @('1', '2', '3') -DefaultOnFail $default
         if ($choice -eq '3') { Warn '  已跳过预下载（将按需在线下载）。'; return }
-        if ($choice -eq '2') {
-            Info '  从 GitHub Release 拉取完整缓存包 ...'
+        if ($choice -eq '1') {
+            Info '  从 GitHub Release 同步完整离线包 ...'
             if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
-            Warn '  未获取到缓存包（可能尚未发布），继续逐项预下载。'
+            Warn '  未获取到缓存包（可能尚未发布），回退为逐项预下载。'
         }
     }
 

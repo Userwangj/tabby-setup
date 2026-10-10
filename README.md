@@ -111,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish-cache.ps1 -Tag cache-
 ```
 
 - 会把整份 `cache\` 打成 `cache-bundle.zip`（含 `manifest.json`）上传到 Release，并附带 `.sha256`。
-- 目标机运行 `install.cmd` 时，在「安装前检查」处选择 **[2] 从 GitHub Release 拉取完整缓存包** 即可拉取整包；也可直接 `install.ps1 -FromRelease`。
+- 目标机运行 `install.cmd` 时，在「安装前检查」处选择 **[1] 从服务器同步完整离线包（GitHub Release）** 即可拉取整包；也可直接 `install.ps1 -FromRelease`。
 - 拉取走脚本内置镜像链（直连优先、失败自动切 `gh-proxy.com`），**支持断点续传**；下载后校验大小、解压到 `cache\`，再进入正常离线安装。
 - 仓库地址默认 `Userwangj/tabby-setup`，可用环境变量 `TABBY_SETUP_REPO=owner/repo` 覆盖（适合 fork）。
 
@@ -136,13 +136,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 选择时会弹出编号菜单（**必须显式输入 1/2/3，直接回车不会开始下载**，避免误触）：
 
 ```
-   [1] 逐项预下载缺失离线包（推荐：跳过 winget）
-   [2] 从 GitHub Release 拉取完整缓存包
+   [1] 从服务器同步完整离线包（GitHub Release：一次性、支持断点续传）（推荐）
+   [2] 逐项预下载缺失离线包（跳过 winget）
    [3] 跳过，边装边下
     选择 1-3
 ```
 
-> 效果：**第一次用等同于内置了一次 prefetch**，装完还顺带得到一份完整 `cache\`，之后同机或拷给别的机器都是离线秒装。选 [1] 逐项下载；选 [2] 从 Release 拉整包（见 1·五）；选 [3] 跳过、边装边下。
+（**首次安装**、本地无任何离线包时默认推荐 **[1] 整包同步**；已有部分离线包时推荐 **[2] 逐项**，只补缺的更省流量。）
+
+> 效果：**第一次用等同于内置了一次 prefetch**，装完还顺带得到一份完整 `cache\`，之后同机或拷给别的机器都是离线秒装。选 [1] 从服务器整包同步（见 1·五）；选 [2] 逐项下载；选 [3] 跳过、边装边下。
 
 ### 3. 版本检测与选择（自动）
 
