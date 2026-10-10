@@ -807,13 +807,17 @@ function Invoke-VersionCheck {
     # ---- 有更新：询问 ----
     Write-Host '  [!] 检测到新版本。从 GitHub 直连下载可能很慢（每项可能数分钟）' -ForegroundColor Yellow
     Write-Host '   [1] * 全部使用已准备版本（推荐：离线、秒装）'
-    Write-Host '   [2]   全部在线下载最新版本（慢）'
+    Write-Host '   [2]   只在线更新「有更新」的组件，其余用已准备版本'
     Write-Host '   [3]   逐个选择'
     $choice = if ($Yes) { '1' } else { Read-Host '  选择 1-3 (Enter = 1)' }
 
     if ($choice -eq '2') {
+        # 只有「有更新」的组件才联网下最新；已是最新的用缓存（无文件时 Resolve-Source 会自动回退联网）
         $pref = @{}
-        foreach ($r in $rows) { $pref[$r.key] = 'latest' }
+        foreach ($r in $rows) {
+            if ($r.latest -and (Ver-Newer $r.latest $r.cached)) { $pref[$r.key] = 'latest' }
+            else { $pref[$r.key] = 'cache' }
+        }
         return $pref
     }
     if ($choice -eq '3') {
