@@ -18,8 +18,8 @@
       5. PowerShell 7 (pwsh) + CompletionPredictor (cache -> winget ->
          mirrored MSIX); Tabby default shell ->
          local:powershell-core (falls back to Windows PowerShell)
-      6. oh-my-posh prompt (cache -> winget -> portable exe; theme +
-                            PowerShell profile; "omp" to switch themes)
+      6. oh-my-posh prompt (cache -> winget -> portable exe; interactive
+                            prompt-theme picker (-OmpTheme to preset); "omp" switches later)
       7. Node.js if needed (cache -> winget -> nodejs.org zip)
          then 8 npm plugins (cache -> npm install)
       8. tabbyhelp / tabbycolors / tabbytheme commands
@@ -27,6 +27,7 @@
     Usage:
       powershell -ExecutionPolicy Bypass -File install.ps1
       powershell -ExecutionPolicy Bypass -File install.ps1 -Theme "Cyberpunk 2077"
+      powershell -ExecutionPolicy Bypass -File install.ps1 -OmpTheme paradox
       powershell -ExecutionPolicy Bypass -File install.ps1 -Offline        # cache only, never network
       powershell -ExecutionPolicy Bypass -File install.ps1 -Online         # always latest
       powershell -ExecutionPolicy Bypass -File install.ps1 -Yes            # never ask (auto default)
@@ -41,7 +42,8 @@
 #>
 
 param(
-    [string]$Theme = '',  # preset theme name; empty = interactive picker
+    [string]$Theme = '',  # preset Tabby neon theme name; empty = interactive picker
+    [string]$OmpTheme = '',  # preset oh-my-posh prompt theme name; empty = interactive picker
     [switch]$Offline,     # 只用离线包，绝不联网下载
     [switch]$Online,      # 总是在线下载最新版
     [switch]$Yes,         # 全部接受默认（完全不交互）
@@ -609,6 +611,72 @@ if ($pwshExe) {
     Warn '       PowerShell 7 unavailable - staying on Windows PowerShell 5.1'
 }
 
+# ---- oh-my-posh 提示符主题选择（与 omp 命令同一套精选主题，带实时预览）----
+$OmpCurated = [ordered]@{
+    'atomic'                = '现代两行 · 图标+git · 简约炫'
+    'jandedobbeleer'        = '经典彩色分段 · 默认风'
+    'powerlevel10k_rainbow' = '彩虹分段 · 最炫'
+    'paradox'               = '粗体 Powerline · 硬核'
+    'aliens'                = '太空异形风'
+    'montys'                = '清爽多彩 · 圆角'
+    'smoothie'              = '柔和渐变'
+    'velvet'                = '紫罗兰丝绒'
+    'blueish'               = '冰蓝冷色'
+    '1_shell'               = 'Windows 磁贴风'
+    'tonybaloney'           = '企鹅橙 · 活泼'
+    'M365Princess'          = '微软公主风'
+    'clean-detailed'        = '干净细致'
+    'darkblood'             = '暗血红'
+    'craver'                = '暗色分段'
+    'nu4a'                  = '极简图标'
+}
+function Get-OmpThemesDir {
+    $cands = @()
+    $pkg = Get-AppxPackage -Name '*ohmyposh*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pkg -and $pkg.InstallLocation) { $cands += (Join-Path $pkg.InstallLocation 'themes') }
+    $cands += (Join-Path $ompPortableDir 'themes')
+    $cands += 'C:\Program Files\oh-my-posh\themes'
+    $cands += (Join-Path $env:LOCALAPPDATA 'Programs\oh-my-posh\themes')
+    foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
+    return $null
+}
+function Apply-OmpTheme([string]$Name, [string]$ThemesDir) {
+    $f = Join-Path $ThemesDir ($Name + '.omp.json')
+    if (-not (Test-Path $f)) { return $false }
+    Copy-Item $f (Join-Path $BinDir 'oh-my-posh.omp.json') -Force
+    Set-Content -Path (Join-Path $BinDir 'oh-my-posh.theme.txt') -Value $Name -Encoding ASCII
+    return $true
+}
+function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
+    if (-not $ThemesDir) { Warn '       未找到 oh-my-posh 主题目录，保持默认 atomic'; return }
+    if ($OmpTheme) {
+        if (Apply-OmpTheme $OmpTheme $ThemesDir) { Ok ("       omp 主题: $OmpTheme  (-OmpTheme)") }
+        else { Warn ("       指定的 omp 主题不存在: $OmpTheme，保持默认 atomic") }
+        return
+    }
+    if ($AutoYes) { return }   # 非交互：保持默认 atomic
+    Write-Host ''
+    Write-Host '  ========== Choose an oh-my-posh prompt theme ==========' -ForegroundColor Cyan
+    Write-Host ''
+    $map = @(); $i = 0
+    foreach ($k in $OmpCurated.Keys) {
+        $f = Join-Path $ThemesDir ($k + '.omp.json')
+        if (-not (Test-Path $f)) { continue }
+        $i++; $map += $k
+        Write-Host ("    [{0,2}] {1,-22} {2}" -f $i, $k, $OmpCurated[$k]) -ForegroundColor White
+        if ($OmpExe) {
+            try { $pv = & $OmpExe print primary --config $f --shell pwsh 2>$null; if ($pv) { Write-Host ('         ' + $pv) } } catch { }
+        }
+    }
+    Write-Host ''
+    if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
+    $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
+    $ans = Read-Choice -Prompt ("  选择 omp 主题 1-$($map.Count)") -Allowed $allowed -DefaultOnFail '1'
+    $name = $map[[int]$ans - 1]
+    if (Apply-OmpTheme $name $ThemesDir) { Ok ("       omp 主题: $name") }
+    else { Warn ("       应用失败: $name，保持默认 atomic") }
+}
+
 # --- 6/9. oh-my-posh prompt (install + deploy theme + profile) ---
 Info '[6/9] Setting up oh-my-posh prompt...'
 $omp = $null
@@ -714,6 +782,9 @@ if ($useOwnOmp) {
     }
     $themeNameFile = Join-Path $BinDir 'oh-my-posh.theme.txt'
     if (-not (Test-Path $themeNameFile)) { Set-Content -Path $themeNameFile -Value 'atomic' -Encoding ASCII }
+    # 安装时选择 oh-my-posh 提示符主题（-OmpTheme 预设；非交互/-Yes 保持默认 atomic）
+    $ompExeForTheme = if ($omp) { $omp } else { Join-Path $ompPortableDir 'oh-my-posh.exe' }
+    Select-OmpTheme -OmpExe $ompExeForTheme -ThemesDir (Get-OmpThemesDir)
 } else {
     Warn '       保留本机 oh-my-posh：未改动它的配置（不部署本包主题/选择器）'
 }

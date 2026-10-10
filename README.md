@@ -179,6 +179,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 | `-Online` | 强制总是从线上拉最新版 |
 | `-Yes` | 遇到「有更新」也不询问，自动选默认（已准备版本），适合批处理 |
 | `-Ours` | 检测到已有 pwsh / oh-my-posh 时，直接安装**本程序的版本**（会覆盖本机同名程序的配置） |
+| `-Theme` | 预设 Tabby 霓虹**配色**主题（如 `-Theme "Cyberpunk 2077"`），跳过安装时的配色提问 |
+| `-OmpTheme` | 预设 oh-my-posh **提示符**主题（如 `-OmpTheme paradox`），跳过安装时的提示符主题提问 |
 | `-FromRelease` | 优先从 GitHub Release 拉取整份 `cache-bundle.zip` 到 `cache\`，再离线安装（见 1·五）；未发布则自动回退为逐项预下载 |
 
 > **已装 pwsh / oh-my-posh 时会询问（重要）**：安装时脚本会检测本机是否已安装 PowerShell 7 与 oh-my-posh；若已安装，会停下让你选：
@@ -236,12 +238,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 4. **选择配色主题**（8 个主题，带 ANSI 真彩色实时预览）
 5. 安装 **JetBrainsMono Nerd Font**（优先离线包，用户级，免管理员）
 6. 安装 **PowerShell 7 (pwsh)** + `CompletionPredictor`（优先离线包）；把 Tabby 默认 shell 切到 `local:powershell-core`
-7. 部署 **oh-my-posh** 提示符（优先离线便携版 → winget；主题 + profile；配 `omp` 命令）
+7. 部署 **oh-my-posh** 提示符（优先离线便携版 → winget；**交互选择提示符主题**（带预览）或 `-OmpTheme` 预设；写入 profile；配 `omp` 命令）
 8. 安装 **Node.js**（优先离线包）+ **8 个插件**（优先离线 npm 树）
 9. 创建 `tabbyhelp` / `tabbycolors` / `tabbytheme` 命令（`%USERPROFILE%\bin` + PATH）
 10. 启动 Tabby
 
-> 全程**一键自动**，只有「版本选择 / 主题选择」会让你输入。
+> 全程**一键自动**，只有「版本选择 / 配色主题 / oh-my-posh 提示符主题」会让你输入。
 > - **下载**（Tabby / 字体 / Node.js / PowerShell 7 / oh-my-posh）在主窗口显示**实时进度条**（填充块 + 百分比 + 已下载/总 MB + 速度 + ETA）；在线下载还会**自动存入 `cache\`**，下次即可离线。
 
 > [!NOTE]
@@ -291,11 +293,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Theme "Cyberpunk
 终端里 `PS C:\Users>` 默认是**纯文本**（只显示终端前景色）。安装脚本会额外用 **oh-my-posh** 把提示符换成彩色分段（图标 / git 分支 / 路径 / 执行时间）：
 
 - 安装时自动 `winget install JanDeDobbeleer.OhMyPosh`
-- 默认主题 **`atomic`**（现代两行、圆角 Powerline、图标 + git + 右侧时钟）部署到 `%USERPROFILE%\bin\oh-my-posh.omp.json`
+- 安装时会像配色主题一样**交互选择提示符主题**（精选 16 个，带真彩色实时预览）；也可用 `-OmpTheme paradox` 预设跳过提问；非交互 / `-Yes` 时默认 **`atomic`**
+- 选定主题写入 `%USERPROFILE%\bin\oh-my-posh.omp.json`（默认 **`atomic`**：现代两行、圆角 Powerline、图标 + git + 右侧时钟），并在 `oh-my-posh.theme.txt` 记录主题名
 - PowerShell profile 部署到 `Documents\WindowsPowerShell\` 与 `Documents\PowerShell\`；若已有自定义 profile，则**追加**一个代码块而不覆盖
 - **打开新的 Tabby 标签页 / 重开 Tabby** 即可看到新提示符（profile 在 PowerShell 启动时加载）
 
-##### 换主题：`omp` 选择器
+##### 安装后随时换主题：`omp` 选择器
 
 在 Tabby 里运行 `omp`，会列出精选的炫酷主题，并**在真实终端里用真彩色渲染预览**，输入编号后在 `[y/n]` 确认处**显式输入 `y`** 才应用（直接回车不会应用）：
 
