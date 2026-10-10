@@ -25,7 +25,7 @@ $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
 if ($tar) {
     Push-Location $parent
     try {
-        & tar.exe -a -cf $out $name
+        & tar.exe -a -cf $out --exclude "$name/.git" $name
         if ($LASTEXITCODE -ne 0) { throw "tar 打包失败（exit=$LASTEXITCODE）" }
     } finally { Pop-Location }
 } else {

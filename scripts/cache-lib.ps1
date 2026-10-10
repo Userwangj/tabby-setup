@@ -150,13 +150,22 @@ function Invoke-WithSpinner {
 function Expand-ZipWithProgress {
     param([string]$ZipPath, [string]$Destination, [string]$Activity = '解压', [switch]$NoClear)
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    if (-not (Test-Path $ZipPath)) {
+        if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       压缩包不存在，跳过解压：$ZipPath" }
+        return $false
+    }
+    if (-not (Test-ZipFile $ZipPath)) {
+        if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       压缩包无效或不完整，跳过解压：$ZipPath" }
+        return $false
+    }
     if (-not $NoClear -and (Test-Path $Destination)) { Remove-Item $Destination -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    $zip = $null
     try {
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
         $entries = @($zip.Entries)
         $total = $entries.Count
-        if ($total -eq 0) { return }
+        if ($total -eq 0) { return $true }
         $i = 0
         foreach ($e in $entries) {
             $i++
@@ -173,7 +182,13 @@ function Expand-ZipWithProgress {
             }
         }
         Complete-LiveProgress (New-ProgressLine -Activity $Activity -Pct 100 -MbText "$total/$total 项" -Spd '')
-    } finally { $zip.Dispose() }
+        return $true
+    } catch {
+        if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       解压失败：$($_.Exception.Message)" }
+        return $false
+    } finally {
+        if ($zip) { try { $zip.Dispose() } catch { } }
+    }
 }
 
 # ---- 打包目录为 zip（标准 zip，.NET 与 tar.exe 均可读写）----
@@ -368,13 +383,15 @@ function Get-FileWithProgress {
         $len = (Get-Item $OutFile).Length
         if ($total -gt 0 -and $len -ne $total) {
             if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Incomplete download ($([math]::Round($len/1MB,1)) / $([math]::Round($total/1MB,1)) MB)" }
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             return $false
         }
         if ($ExpectedBytes -gt 0 -and $len -ne $ExpectedBytes) {
             if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Size mismatch (got $len, expected $ExpectedBytes bytes)" }
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             return $false
         }
-        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { return $false }
+        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue; return $false }
         return $true
     } catch {
         try { Complete-LiveProgress "   $Activity   失败" } catch { }
@@ -384,6 +401,8 @@ function Get-FileWithProgress {
             curl.exe -L -s -m $TimeoutSec --retry 3 --retry-delay 2 -o $OutFile $Url
             if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 0) -and ($MinBytes -le 0 -or (Get-Item $OutFile).Length -ge $MinBytes)) { return $true }
         } catch { }
+        # 失败：清理可能残留的不完整文件，避免下次被误当有效包使用
+        Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
         return $false
     }
 }

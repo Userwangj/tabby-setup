@@ -366,16 +366,19 @@ if ($installedFonts -match 'JetBrainsMono Nerd Font Mono') {
             Warn "       Downloading: $u"
             if (Get-FileWithProgress -Url $u -OutFile $tmpZip -MinBytes 25MB -TimeoutSec 300 -Activity 'JetBrainsMono NF') { break }
         }
-        if ((Test-Path $tmpZip) -and ((Get-Item $tmpZip).Length -gt 25MB)) {
+        if ((Test-Path $tmpZip) -and ((Get-Item $tmpZip).Length -gt 25MB) -and (Test-ZipFile $tmpZip)) {
             Copy-Item $tmpZip (Get-CachePath $CacheDir 'font') -Force -ErrorAction SilentlyContinue
             $tag = Get-LatestGitHubTag 'ryanoasis/nerd-fonts'; if (-not $tag) { $tag = 'latest' }
             Set-ManifestEntry $CacheDir 'font' $tag 'JetBrainsMono.zip'
             $zip = $tmpZip
+        } elseif (Test-Path $tmpZip) {
+            Warn '       字体包不完整，已丢弃'
+            Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         }
     } else {
         Warn '       字体已跳过（无离线包/用户选择跳过）'
     }
-    if ($zip -and (Test-Path $zip)) {
+    if ($zip -and (Test-Path $zip) -and (Test-ZipFile $zip)) {
         $ext = Join-Path $env:TEMP 'tabby-setup-font-extract'
         Expand-ZipWithProgress -ZipPath $zip -Destination $ext -Activity '解压字体'
         $styles = @('Regular','Bold','Italic','BoldItalic','Medium','MediumItalic','Light','LightItalic','SemiBold','SemiBoldItalic')
