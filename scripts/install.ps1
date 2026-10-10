@@ -677,6 +677,33 @@ function Apply-OmpTheme([string]$Name, [string]$ThemesDir) {
     Set-Content -Path (Join-Path $BinDir 'oh-my-posh.theme.txt') -Value $Name -Encoding ASCII
     return $true
 }
+# 把（已清理的）彩色预览按“可见宽度”截断到终端宽度，保留 ANSI 转义序列不被切断；
+# 逐行计数、行尾超出丢弃，最后补一个重置色，避免个别主题段太长把行挤到换行。
+function Limit-PreviewWidth([string]$Text, [int]$MaxVisible) {
+    if ($MaxVisible -lt 10) { return $Text }
+    $e = [char]27; $n = $Text.Length; $i = 0; $vis = 0
+    $sb = New-Object System.Text.StringBuilder
+    while ($i -lt $n) {
+        $ch = $Text[$i]
+        if ($ch -eq $e) {
+            $j = $i + 1
+            if ($j -lt $n -and $Text[$j] -eq '[') {
+                $j++
+                while ($j -lt $n -and ('0123456789;?'.IndexOf($Text[$j]) -ge 0)) { $j++ }
+                if ($j -lt $n) { $j++ }
+            } elseif ($j -lt $n -and $Text[$j] -eq ']') {
+                $j++
+                while ($j -lt $n -and $Text[$j] -ne [char]7 -and $Text[$j] -ne $e) { $j++ }
+                if ($j -lt $n) { $j++ }
+            } else { $j++ }
+            [void]$sb.Append($Text.Substring($i, $j - $i)); $i = $j; continue
+        }
+        if ($ch -eq "`n") { $vis = 0; [void]$sb.Append($ch); $i++; continue }
+        if ($vis -lt $MaxVisible) { [void]$sb.Append($ch); $vis++ }
+        $i++
+    }
+    return ($sb.ToString() + $e + '[0m')
+}
 function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     if (-not $ThemesDir) { Warn '       未找到 oh-my-posh 主题目录，保持默认 atomic'; return }
     if ($OmpTheme) {
@@ -689,8 +716,19 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     Write-Host '  ========== Choose an oh-my-posh prompt theme ==========' -ForegroundColor Cyan
     Write-Host ''
     $map = @(); $i = 0
-    # oh-my-posh print 输出的是 UTF-8 + Nerd Font 字形；Windows PowerShell 5.1 默认按
-    # 系统编码(GBK)解码原生命令输出 → 中文/图标全乱码。预览期间临时切到 UTF-8，结束恢复。
+    # 预览渲染要点：
+    # 1) oh-my-posh print 输出 UTF-8 + Nerd Font 字形；PS 5.1 默认按系统编码(GBK)解码
+    #    原生命令输出会乱码 → 预览期间临时切 UTF-8，结束恢复；
+    # 2) 被管道捕获时 oh-my-posh 探测不到终端宽度，会按很大的宽度做右对齐（大段空白），
+    #    打印到窄控制台就会换行/错位 → 剥掉 OSC 标题与光标保存/恢复，并把大段空白折叠成
+    #    单个空格，预览顶格输出，任何窗口宽度都不再换行。
+    $esc = [char]27; $bel = [char]7
+    $oscRe = ($esc + '\][^' + $bel + $esc + ']*(?:' + $bel + '|' + $esc + '\\)')
+    # 终端宽度（保留 2 列余量），预览超宽时按可见宽度截断
+    $consoleW = 120
+    try { $consoleW = [int]$Host.UI.RawUI.WindowSize.Width } catch { }
+    if ($consoleW -lt 40) { $consoleW = 120 }
+    $maxVis = $consoleW - 2
     $prevOutEnc = [Console]::OutputEncoding
     try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
     try {
@@ -700,12 +738,23 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
             $i++; $map += $k
             Write-Host ("    [{0,2}] {1,-22} {2}" -f $i, $k, $OmpCurated[$k]) -ForegroundColor White
             if ($OmpExe) {
-                try { $pv = & $OmpExe print primary --config $f --shell pwsh 2>$null; if ($pv) { Write-Host ('         ' + $pv) } } catch { }
+                try {
+                    $pv = & $OmpExe print primary --config $f --shell pwsh --terminal-width 110 2>$null
+                    if ($pv) {
+                        $pv = [regex]::Replace($pv, $oscRe, '')
+                        $pv = [regex]::Replace($pv, ($esc + '[78]'), '')
+                        $pv = [regex]::Replace($pv, ' {2,}', ' ')
+                        $pv = Limit-PreviewWidth $pv $maxVis
+                        Write-Host $pv
+                    }
+                } catch { }
             }
         }
     } finally { try { [Console]::OutputEncoding = $prevOutEnc } catch { } }
     Write-Host ''
     if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
+    Write-Host '  提示：预览里的图标需要 Nerd Font 字体；在 Tabby 里运行可看完整效果。' -ForegroundColor DarkGray
+    Write-Host ''
     $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
     $ans = Read-Choice -Prompt ("  选择 omp 主题 1-$($map.Count)") -Allowed $allowed -DefaultOnFail '1'
     $name = $map[[int]$ans - 1]
