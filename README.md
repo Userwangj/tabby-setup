@@ -341,13 +341,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Theme "Cyberpunk
 
 #### 智能补全（灰字内联预测）
 
-默认 shell 是 **PowerShell 7 (pwsh)**，profile 已启用 **PSReadLine 预测性智能提示 + `CompletionPredictor`**：输入前缀即用灰字提示命令/参数（**即使从未用过**），按 `→` / `End` 采纳（类似 fish / cmd+Clink）。
+默认 shell 是 **PowerShell 7 (pwsh)**，profile 已启用 **PSReadLine 历史预测**：输入过的命令/前缀会用灰字内联提示，按 `→` / `End` 采纳（类似 fish / cmd+Clink）。
 
-- `install.ps1` 会自动：装 **PowerShell 7** → 把 Tabby 默认 shell 设为 `local:powershell-core` → 装 **CompletionPredictor**（CurrentUser 级，免管理员）
-- 验证：在 pwsh 新标签输入 `(Get-PSReadLineOption).PredictionSource`，应返回 `HistoryAndPlugin`
+> **为什么默认不用插件预测**：`CompletionPredictor` 插件会在**每次按键**时实时计算补全，实际使用中**打字（尤其敲空格）容易明显卡顿**，因此本包把它改为**按需开启**。
+> 想要"命令从没打过也能预测"的插件补全：设环境变量 `TABBY_SETUP_PLUGIN_PREDICTION=1`，重开标签页即可（`PredictionSource` 变为 `HistoryAndPlugin`）。
+
+- `install.ps1` 会自动：装 **PowerShell 7** → 把 Tabby 默认 shell 设为 `local:powershell-core` → 装 **CompletionPredictor**（CurrentUser 级，免管理员，供按需启用）
+- 默认预测源：`History`（只读内存历史，极快）
 - 改"菜单式"列表（非内联灰字）：`Set-PSReadLineOption -PredictionViewStyle ListView`
-- 回退：若 PowerShell 7 不可用，则留在 **Windows PowerShell 5.1**，`install.ps1` 会把自带 PSReadLine 2.0 升级到 2.4+，预测来自**历史记录**（用过一次的命令即可被提示）
+- 验证：在 pwsh 新标签输入 `(Get-PSReadLineOption).PredictionSource`，默认应为 `History`
+- 回退：若 PowerShell 7 不可用，则留在 **Windows PowerShell 5.1**，`install.ps1` 会把自带 PSReadLine 2.0 升级到 2.4+，预测来自**历史记录**
 - 手动（pwsh）：`pwsh -Command 'Install-Module CompletionPredictor -Scope CurrentUser -Force'`
+
+#### 提示符卡顿 / 打字延迟（oh-my-posh）
+
+oh-my-posh 会在**每条命令后**同步渲染提示符（默认约 90–150 ms，其中 **Git 段最贵**：本机在 Git 仓库内约 70 ms，仓库越大越慢）。这段渲染期间 shell 不接收输入，所以**命令刚结束时立刻打字会感觉"延迟"**；主题越花（多行 / 多段 / powerline）越明显。
+
+- **先定位**：临时加载一个极简单行主题（`robbyrussell` 仅 1 块 3 段）测试——
+  ```powershell
+  oh-my-posh init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\robbyrussell.omp.json" | Invoke-Expression
+  ```
+  若打字立刻变跟手 → 是提示符渲染；若仍延迟 → 多半是 Tabby 渲染（见下）。
+- **换轻量主题**：用 `omp` 选段数少、**单行**的主题，或去掉 Git 段（Git 仓库内每提示符都要调 `git`）。
+- **调 Tabby 渲染**：`config.yaml` 里 `terminal.scrollbackLines: 10000`（默认 100000 偏大）、`terminal.ligatures: false`，重启 Tabby；必要时更新 Tabby、关闭 `appearance.vibrancy`（模糊/透明在 Windows 上会加大重绘开销）。
+- **进阶（让提示符不再阻塞输入）**：oh-my-posh 31 支持异步 streaming，可在 profile 里加 `Enable-PoshStreaming`（会常驻 `oh-my-posh serve` 进程）。
 
 ---
 

@@ -13,7 +13,7 @@
   字体         JetBrainsMono NFM 15px + 连字
   光标         竖状闪烁
   回滚缓冲     100000 行
-  智能补全     灰字内联预测 - PowerShell 7 + CompletionPredictor (→ / End 采纳)
+  智能补全     灰字内联历史预测 - PowerShell 7 (→ / End 采纳; 插件预测见 README)
   复制         选中即复制 · 右键粘贴 · 中键粘贴
 
 [提示符 / oh-my-posh]
