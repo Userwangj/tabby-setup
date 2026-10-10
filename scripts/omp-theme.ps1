@@ -3,6 +3,10 @@
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
+# 清空“之前误按/等待期间”积压在控制台输入缓冲里的按键（含回车），
+# 避免被随后的 Read-Host 当成输入（典型：跑了很久后第一个提问被空回车带走）。
+function Clear-PendingInput { try { $Host.UI.RawUI.FlushInputBuffer() } catch { } }
+
 # ---- 显式选择：必须输入 Allowed 之一；回车/无效会重问，防止误触回车 ----
 function Read-Choice {
     param(
@@ -12,7 +16,7 @@ function Read-Choice {
         [int]$MaxTries = 5
     )
     if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
-    try { $Host.UI.RawUI.FlushInputBuffer() } catch { }
+    Clear-PendingInput
     $allowedTxt = ($Allowed -join ' / ')
     for ($i = 0; $i -lt $MaxTries; $i++) {
         $ans = ''
@@ -135,6 +139,7 @@ while ($true) {
     Write-Host ''
     Write-Host '    L) 列出全部主题并预览    Q) 退出' -ForegroundColor DarkGray
     Write-Host ''
+    Clear-PendingInput
     $sel = Read-Host '  选择编号'
     if ([string]::IsNullOrWhiteSpace($sel)) { continue }
     if ($sel -match '^(q|Q)$') { break }
@@ -145,6 +150,7 @@ while ($true) {
         Write-Host ('  全部 ' + $all.Count + ' 个主题:') -ForegroundColor DarkGray
         Write-Host ('   ' + ($all -join ', ')) -ForegroundColor DarkGray
         Write-Host ''
+        Clear-PendingInput
         $nm = Read-Host '  输入主题名预览 (回车返回)'
         if (-not [string]::IsNullOrWhiteSpace($nm)) {
             $nm = $nm.Trim()
