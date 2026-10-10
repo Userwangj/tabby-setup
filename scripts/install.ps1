@@ -31,6 +31,7 @@
       powershell -ExecutionPolicy Bypass -File install.ps1 -Online         # always latest
       powershell -ExecutionPolicy Bypass -File install.ps1 -Yes            # never ask (auto default)
       powershell -ExecutionPolicy Bypass -File install.ps1 -Ours           # 已有 pwsh/omp 时直接用本程序版本
+      powershell -ExecutionPolicy Bypass -File install.ps1 -FromRelease    # 先从 GitHub Release 拉取整份缓存包
     Note: 若本机已安装 PowerShell 7 / oh-my-posh，安装时会询问：
           [1] 保留本机版本（默认，完全不改动它的配置）
           [2] 安装本程序版本（会覆盖本机相同程序的配置）
@@ -44,7 +45,8 @@ param(
     [switch]$Offline,     # 只用离线包，绝不联网下载
     [switch]$Online,      # 总是在线下载最新版
     [switch]$Yes,         # 全部接受默认（完全不交互）
-    [switch]$Ours         # 检测到已有 pwsh/oh-my-posh 时，直接用本程序的版本（覆盖）
+    [switch]$Ours,        # 检测到已有 pwsh/oh-my-posh 时，直接用本程序的版本（覆盖）
+    [switch]$FromRelease  # 优先从 GitHub Release 拉取整份缓存包，再离线安装
 )
 
 $ErrorActionPreference = 'Continue'
@@ -82,6 +84,7 @@ $RunMode = 'ask'
 if ($Offline) { $RunMode = 'cache' }
 if ($Online)  { $RunMode = 'online' }
 $AutoYes = [bool]$Yes
+$PreferRelease = [bool]$FromRelease   # 优先从 Release 拉取整份缓存包
 
 function Find-Tabby {
     $candidates = @(
@@ -136,12 +139,15 @@ function Invoke-PreDownloads {
         if ($r.Cached) { continue }
         if (($installerKeys -contains $r.Key) -and (-not $r.Present)) { $download += $r.Key }
     }
-    if ($download.Count -eq 0) { return }   # 缓存已就绪或组件都在，保持原流程
     # 模块 / npm 插件：仅在本次确实要安装组件时顺带预取（npm 需本机已有 npm.cmd）
-    $modCached = [bool]((Get-CachedModuleVersion $CacheDir 'PSReadLine') -or (Get-CachedModuleVersion $CacheDir 'CompletionPredictor'))
-    $npmCached = (Test-Path (Join-Path $CacheDir 'npm\node_modules.zip')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules'))
-    if (-not $modCached) { $download += 'modules' }
-    if ((Get-Command npm.cmd -ErrorAction SilentlyContinue) -and -not $npmCached) { $download += 'npm' }
+    if ($download.Count -gt 0) {
+        $modCached = [bool]((Get-CachedModuleVersion $CacheDir 'PSReadLine') -or (Get-CachedModuleVersion $CacheDir 'CompletionPredictor'))
+        $npmCached = (Test-Path (Join-Path $CacheDir 'npm\node_modules.zip')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules'))
+        if (-not $modCached) { $download += 'modules' }
+        if ((Get-Command npm.cmd -ErrorAction SilentlyContinue) -and -not $npmCached) { $download += 'npm' }
+    }
+
+    if ($download.Count -eq 0 -and -not $PreferRelease) { return }   # 缓存已就绪或组件都在，保持原流程
 
     Info ''
     Info '  ========== 安装前检查 / 预下载计划 =========='
@@ -159,12 +165,27 @@ function Invoke-PreDownloads {
     Info ''
 
     if (-not (Test-Network)) { Warn '  [预下载] 未检测到网络，跳过批量预下载，将按需在线获取。'; return }
-    if (-not $AutoYes) {
-        $ans = ''
-        try { $ans = Read-Host '  [Enter] 先批量下载缺失离线包（推荐：跳过 winget）；[s] 跳过，边装边下' } catch { $ans = '' }
-        if ($ans -match '^\s*s\s*$') { Warn '  已跳过预下载（将按需在线下载）。'; return }
+
+    # -FromRelease：优先从 GitHub Release 拉取整份缓存包（走镜像、可续传）
+    if ($PreferRelease) {
+        Info '  [FromRelease] 从 GitHub Release 拉取完整缓存包 ...'
+        if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
+        Warn '  未获取到缓存包（可能尚未发布），回退为逐项预下载。'
+        if ($download.Count -eq 0) { return }
     }
 
+    if (-not $AutoYes) {
+        $ans = ''
+        try { $ans = Read-Host '  [Enter] 逐项预下载缺失离线包；[b] 从 GitHub Release 拉取完整缓存包；[s] 跳过，边装边下' } catch { $ans = '' }
+        if ($ans -match '^\s*s\s*$') { Warn '  已跳过预下载（将按需在线下载）。'; return }
+        if ($ans -match '^\s*b\s*$') {
+            Info '  从 GitHub Release 拉取完整缓存包 ...'
+            if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
+            Warn '  未获取到缓存包（可能尚未发布），继续逐项预下载。'
+        }
+    }
+
+    if ($download.Count -eq 0) { return }
     Info ("  开始预下载 " + $download.Count + " 项到 cache\（连续下载 / 自动切镜像 / 失败重试）...")
     $pfScript = Join-Path $ScriptDir 'prefetch.ps1'
     & powershell -NoProfile -ExecutionPolicy Bypass -File $pfScript -Only ($download -join ',')

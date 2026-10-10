@@ -552,6 +552,80 @@ function Get-LatestGitHubTag([string]$repo) {
     }
     return $null
 }
+
+# ============================================================
+#  缓存包 Release 发布 / 拉取
+#  把整份 cache\ 打包成 cache-bundle.zip 传到 GitHub Release；
+#  目标机可一键拉取（走镜像、支持断点续传），无需逐项挑选。
+#  发布仓库默认本包仓库，可用环境变量 TABBY_SETUP_REPO 覆盖。
+# ============================================================
+$script:CacheBundleName  = 'cache-bundle.zip'
+$script:CacheReleaseRepo = 'Userwangj/tabby-setup'
+
+function Get-CacheReleaseRepo {
+    if ($env:TABBY_SETUP_REPO) { return [string]$env:TABBY_SETUP_REPO }
+    return $script:CacheReleaseRepo
+}
+
+# 查询缓存包 Release（默认最新；未发布 / 无附件返回 $null）
+function Get-CacheReleaseInfo {
+    param([string]$Repo = '', [string]$Tag = '')
+    if (-not $Repo) { $Repo = Get-CacheReleaseRepo }
+    $api = if ($Tag) { "https://api.github.com/repos/$Repo/releases/tags/$Tag" } else { "https://api.github.com/repos/$Repo/releases/latest" }
+    foreach ($u in (Get-GitHubApiMirrors $api)) {
+        try {
+            $r = Invoke-RestMethod -Uri $u -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 15
+            if (-not $r.tag_name) { continue }
+            $asset = @($r.assets) | Where-Object { $_.name -eq $script:CacheBundleName } | Select-Object -First 1
+            return [pscustomobject]@{
+                Repo     = $Repo
+                Tag      = [string]$r.tag_name
+                HasAsset = [bool]$asset
+                Name     = if ($asset) { [string]$asset.name } else { $script:CacheBundleName }
+                Size     = if ($asset) { [long]$asset.size } else { 0 }
+                Url      = if ($asset) { [string]$asset.browser_download_url } else { '' }
+            }
+        } catch { }
+    }
+    return $null
+}
+
+# 从 Release 下载整份缓存包并解压到 cache\；成功返回 $true
+function Get-CacheBundleFromRelease {
+    param([string]$CacheDir, [string]$Tag = '', [string]$Repo = '')
+    if (-not $Repo) { $Repo = Get-CacheReleaseRepo }
+    $rel = Get-CacheReleaseInfo -Repo $Repo -Tag $Tag
+    if (-not $rel -or -not $rel.HasAsset) { return $false }
+
+    $tmp = Join-Path $env:TEMP 'tabby-setup-cache-bundle.zip'
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $urls = Get-GitHubMirrors $rel.Url
+    $ok = Get-FileFromMirrors -Urls $urls -OutFile $tmp -ExpectedBytes $rel.Size -MinBytes 1MB -Activity ('缓存包 ' + $rel.Tag) -TimeoutSec 1800
+    if (-not $ok) { return $false }
+    if ($rel.Size -gt 0 -and (Get-Item $tmp).Length -ne $rel.Size) {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+    if (-not (Test-ZipFile $tmp)) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; return $false }
+
+    New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null
+    $cacheFull = [System.IO.Path]::GetFullPath($CacheDir).TrimEnd('\') + '\'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+    try {
+        foreach ($e in $zip.Entries) {
+            if ([string]::IsNullOrEmpty($e.Name)) { continue }   # 目录项
+            $entryRel = ($e.FullName -replace '/', '\')
+            $dest = [System.IO.Path]::GetFullPath((Join-Path $CacheDir $entryRel))
+            if (-not $dest.StartsWith($cacheFull, [System.StringComparison]::OrdinalIgnoreCase)) { continue }  # 防 zip-slip
+            $dir = Split-Path -Parent $dest
+            if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $dest, $true)
+        }
+    } finally { $zip.Dispose() }
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    return $true
+}
 function Get-LatestNodeLts {
     try {
         $idx = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing -TimeoutSec 12
