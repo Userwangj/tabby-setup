@@ -660,6 +660,18 @@ $OmpCurated = [ordered]@{
     'craver'                = '暗色分段'
     'nu4a'                  = '极简图标'
 }
+# oh-my-posh 流式超时（毫秒）。>0 且小于慢段（Git）耗时：提示符先秒出、慢段显示占位符
+# 再异步补齐，打字不再被 Git 渲染堵住。设 0 或删除主题里的 "streaming" 键即退回同步渲染。
+# 见 README「提示符卡顿 / 打字延迟」。
+$OmpStreamingMs = 30
+
+# 给主题 JSON 注入顶层 "streaming"（已有则不动）；只读改写，不改其他内容。
+function Add-OmpStreaming([string]$Json, [int]$Ms) {
+    if ($Json -match '"streaming"\s*:') { return $Json }
+    $i = $Json.IndexOf('{')
+    if ($i -lt 0) { return $Json }
+    return $Json.Substring(0, $i + 1) + "`n  `"streaming`": $Ms," + $Json.Substring($i + 1)
+}
 function Get-OmpThemesDir {
     $cands = @()
     $pkg = Get-AppxPackage -Name '*ohmyposh*' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -673,7 +685,8 @@ function Get-OmpThemesDir {
 function Apply-OmpTheme([string]$Name, [string]$ThemesDir) {
     $f = Join-Path $ThemesDir ($Name + '.omp.json')
     if (-not (Test-Path $f)) { return $false }
-    Copy-Item $f (Join-Path $BinDir 'oh-my-posh.omp.json') -Force
+    $json = Add-OmpStreaming ([System.IO.File]::ReadAllText($f)) $OmpStreamingMs
+    [System.IO.File]::WriteAllText((Join-Path $BinDir 'oh-my-posh.omp.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
     Set-Content -Path (Join-Path $BinDir 'oh-my-posh.theme.txt') -Value $Name -Encoding ASCII
     return $true
 }
@@ -955,6 +968,8 @@ if ($deployOmpTheme) {
     $ompCfg = Join-Path $BinDir 'oh-my-posh.omp.json'
     if ($useOwnOmp -or -not (Test-Path $ompCfg)) {
         Copy-Item (Join-Path $AssetsDir 'oh-my-posh.omp.json') $ompCfg -Force
+        $json = Add-OmpStreaming ([System.IO.File]::ReadAllText($ompCfg)) $OmpStreamingMs
+        [System.IO.File]::WriteAllText($ompCfg, $json, (New-Object System.Text.UTF8Encoding($false)))
     }
     # deploy the oh-my-posh theme picker (omp command) + remember default theme name
     foreach ($hf in @('omp.cmd', 'omp-theme.ps1')) {

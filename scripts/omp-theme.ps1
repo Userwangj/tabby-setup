@@ -58,6 +58,16 @@ $OmpExe    = Find-Omp
 $ThemesDir = Find-ThemesDir
 $Target    = Join-Path $env:USERPROFILE 'bin\oh-my-posh.omp.json'
 $NameFile  = Join-Path $env:USERPROFILE 'bin\oh-my-posh.theme.txt'
+# oh-my-posh 流式超时（毫秒）：>0 且小于慢段（Git）耗时，提示符先秒出、Git 异步补齐。
+# 设 0（或在主题里删掉 "streaming" 键）退回同步渲染。见 README。
+$OmpStreamingMs = 30
+
+function Add-OmpStreaming([string]$Json, [int]$Ms) {
+    if ($Json -match '"streaming"\s*:') { return $Json }
+    $i = $Json.IndexOf('{')
+    if ($i -lt 0) { return $Json }
+    return $Json.Substring(0, $i + 1) + "`n  `"streaming`": $Ms," + $Json.Substring($i + 1)
+}
 
 if (-not $OmpExe)    { Write-Host '  未找到 oh-my-posh，请先: winget install JanDeDobbeleer.OhMyPosh' -ForegroundColor Red; exit 1 }
 if (-not $ThemesDir) { Write-Host '  未找到 oh-my-posh 主题目录' -ForegroundColor Red; exit 1 }
@@ -99,7 +109,8 @@ function Apply-Theme([string]$name) {
     if (-not $f) { Write-Host ('  主题不存在: ' + $name) -ForegroundColor Red; return }
     $bin = Split-Path $Target -Parent
     if (-not (Test-Path $bin)) { New-Item -ItemType Directory -Path $bin -Force | Out-Null }
-    Copy-Item $f $Target -Force
+    $json = Add-OmpStreaming ([System.IO.File]::ReadAllText($f)) $OmpStreamingMs
+    [System.IO.File]::WriteAllText($Target, $json, (New-Object System.Text.UTF8Encoding($false)))
     Set-Content -Path $NameFile -Value $name -Encoding ASCII
     Write-Host ''
     Write-Host ('  已应用: ' + $name + '  ->  ' + $Target) -ForegroundColor Green
