@@ -546,7 +546,28 @@ function Get-FileSegmented {
             $parts += $pp
             $jobs += Start-Job -ScriptBlock $partOf -ArgumentList $Url, $ranges[$i][0], $ranges[$i][1], $pp, $TimeoutSec
         }
-        $null = Wait-Job -Job $jobs -Timeout ($TimeoutSec + 120)
+
+        # 轮询各分段文件大小，实时刷新进度条（与单流下载同一套渲染）
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $deadline = (Get-Date).AddSeconds($TimeoutSec + 120)
+        while ($true) {
+            $running = @($jobs | Where-Object { $_.State -eq 'Running' })
+            $sum = 0
+            foreach ($pp in $parts) { if (Test-Path $pp) { try { $sum += [long](Get-Item $pp).Length } catch { } } }
+            if ($sum -gt $total) { $sum = $total }
+            $spdVal = if ($sw.Elapsed.TotalSeconds -gt 0) { $sum / $sw.Elapsed.TotalSeconds } else { 0 }
+            $pct = [int](($sum / $total) * 100); if ($pct -gt 100) { $pct = 100 }
+            $eta = ''
+            if ($spdVal -gt 1024) {
+                $remain = ($total - $sum) / $spdVal
+                if ($remain -ge 0 -and $remain -lt 86400) { $eta = 'ETA ' + ([TimeSpan]::FromSeconds([int]$remain)).ToString('mm\:ss') }
+            }
+            try { Write-LiveProgress (New-ProgressLine -Activity $Activity -Pct $pct -MbText ("{0:N1}/{1:N1} MB" -f ($sum / 1MB), ($total / 1MB)) -Spd (Format-Speed $spdVal) -Eta $eta) } catch { }
+            if ($running.Count -eq 0) { break }
+            if ((Get-Date) -gt $deadline) { break }
+            Start-Sleep -Milliseconds 1000
+        }
+        $null = Wait-Job -Job $jobs -Timeout 5
         $allOk = $true
         foreach ($j in $jobs) {
             if ($j.State -eq 'Completed') {
@@ -556,11 +577,16 @@ function Get-FileSegmented {
         }
         Remove-Job -Job $jobs -Force -ErrorAction SilentlyContinue
         if (-not $allOk) {
-            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn '      分段下载未全部完成，回退单流下载（分段已保留，可续传）。' }
+            try { Complete-LiveProgress ("   $Activity   分段下载未完成") } catch { }
+            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn '      回退单流下载（分段已保留，可续传）。' }
             return $false
         }
+        $sum = 0
+        foreach ($pp in $parts) { if (Test-Path $pp) { try { $sum += [long](Get-Item $pp).Length } catch { } } }
+        try { Complete-LiveProgress (New-ProgressLine -Activity $Activity -Pct 100 -MbText ("{0:N1}/{1:N1} MB" -f ($sum / 1MB), ($total / 1MB)) -Spd (Format-Speed $(if ($sw.Elapsed.TotalSeconds -gt 0) { $sum / $sw.Elapsed.TotalSeconds } else { 0 })) -Eta '') } catch { }
 
         # 3) 合并并校验
+        try { Write-LiveProgress ("   $Activity   合并中...") } catch { }
         $tmpOut = $OutFile + '.joining'
         try {
             $out = [System.IO.File]::Create($tmpOut)
@@ -573,13 +599,22 @@ function Get-FileSegmented {
             } finally { $out.Close() }
         } catch {
             Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+            try { Complete-LiveProgress ("   $Activity   合并失败") } catch { }
             return $false
         }
-        if ((Get-Item $tmpOut).Length -ne $total) { Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue; return $false }
+        if ((Get-Item $tmpOut).Length -ne $total) {
+            Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+            try { Complete-LiveProgress ("   $Activity   合并失败") } catch { }
+            return $false
+        }
         if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
         Move-Item -Path $tmpOut -Destination $OutFile -Force
         foreach ($pp in $parts) { Remove-Item $pp -Force -ErrorAction SilentlyContinue }
-        if ($ExpectedBytes -gt 0 -and (Get-Item $OutFile).Length -ne $ExpectedBytes) { return $false }
+        if ($ExpectedBytes -gt 0 -and (Get-Item $OutFile).Length -ne $ExpectedBytes) {
+            try { Complete-LiveProgress ("   $Activity   校验失败") } catch { }
+            return $false
+        }
+        try { Complete-LiveProgress ("   $Activity   完成   $([math]::Round((Get-Item $OutFile).Length / 1MB, 1)) MB") } catch { }
         return $true
     } catch {
         return $false
