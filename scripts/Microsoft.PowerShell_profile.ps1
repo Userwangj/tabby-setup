@@ -7,6 +7,14 @@ if (-not $ompExe) { $ompExe = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps
 if (-not (Test-Path $ompExe)) { $ompExe = Join-Path $env:LOCALAPPDATA 'Programs\oh-my-posh\oh-my-posh.exe' }
 if ((Test-Path $ompTheme) -and (Test-Path $ompExe)) {
     & $ompExe init pwsh --config $ompTheme | Invoke-Expression
+    # 异步提示符（oh-my-posh 31+，仅 pwsh 6+）：由常驻 oh-my-posh serve 后台渲染，
+    # 不再为每条命令新起进程，减少「命令后立刻打字」的延迟感。
+    # 想退回同步渲染：设环境变量 POSH_DISABLE_STREAMING=1 再新开标签页。
+    if ($PSVersionTable.PSEdition -eq 'Core' -and
+        $PSVersionTable.PSVersion.Major -ge 6 -and
+        (Get-Command Enable-PoshStreaming -ErrorAction SilentlyContinue)) {
+        try { Enable-PoshStreaming } catch { }
+    }
 }
 # ==== end oh-my-posh ====
 

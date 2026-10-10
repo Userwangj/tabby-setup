@@ -357,6 +357,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Theme "Cyberpunk
 
 oh-my-posh 会在**每条命令后**同步渲染提示符（默认约 90–150 ms，其中 **Git 段最贵**：本机在 Git 仓库内约 70 ms，仓库越大越慢）。这段渲染期间 shell 不接收输入，所以**命令刚结束时立刻打字会感觉"延迟"**；主题越花（多行 / 多段 / powerline）越明显。
 
+**本包已默认开启异步提示符（streaming，见下）**，正常可显著缓解；若仍卡，按下面继续排查。
+
 - **先定位**：临时加载一个极简单行主题（`robbyrussell` 仅 1 块 3 段）测试——
   ```powershell
   oh-my-posh init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\robbyrussell.omp.json" | Invoke-Expression
@@ -364,7 +366,7 @@ oh-my-posh 会在**每条命令后**同步渲染提示符（默认约 90–150 m
   若打字立刻变跟手 → 是提示符渲染；若仍延迟 → 多半是 Tabby 渲染（见下）。
 - **换轻量主题**：用 `omp` 选段数少、**单行**的主题，或去掉 Git 段（Git 仓库内每提示符都要调 `git`）。
 - **调 Tabby 渲染**：`config.yaml` 里 `terminal.scrollbackLines: 10000`（默认 100000 偏大）、`terminal.ligatures: false`，重启 Tabby；必要时更新 Tabby、关闭 `appearance.vibrancy`（模糊/透明在 Windows 上会加大重绘开销）。
-- **进阶（让提示符不再阻塞输入）**：oh-my-posh 31 支持异步 streaming，可在 profile 里加 `Enable-PoshStreaming`（会常驻 `oh-my-posh serve` 进程）。
+- **异步提示符（已默认开启）**：profile 会调用 oh-my-posh 31 的 `Enable-PoshStreaming`，由常驻 `oh-my-posh serve` 后台进程渲染提示符，省去"每条命令新起进程"的开销、打字更跟手（仅 pwsh 6+ 生效）。想退回同步渲染：设环境变量 `POSH_DISABLE_STREAMING=1`，重开标签页。
 
 ---
 
