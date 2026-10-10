@@ -711,6 +711,13 @@ function Set-ManifestEntry {
     Save-CacheManifest $CacheDir $m
 }
 
+# 清空“下载/安装进行中”被误按而积压在控制台输入缓冲里的按键（含回车）。
+# 否则这些回车会在随后的第一个 Read-Host 被一次性读走，被当成空输入
+# （典型现象：下载时按了回车 → 下载完主题选择被当作 5 次空回车 → 兜底默认）。
+function Clear-PendingInput {
+    try { $Host.UI.RawUI.FlushInputBuffer() } catch { }
+}
+
 # ---- 交互式“显式选择”：必须输入 Allowed 之一；回车/无效会重问，防止误触回车 ----
 # 返回小写后的选项字符串；连续 MaxTries 次无效则返回 DefaultOnFail（默认取 Allowed[0]）。
 function Read-Choice {
@@ -721,6 +728,7 @@ function Read-Choice {
         [int]$MaxTries = 5
     )
     if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
+    Clear-PendingInput
     $allowedTxt = ($Allowed -join ' / ')
     for ($i = 0; $i -lt $MaxTries; $i++) {
         $ans = ''

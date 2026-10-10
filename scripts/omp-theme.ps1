@@ -12,6 +12,7 @@ function Read-Choice {
         [int]$MaxTries = 5
     )
     if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
+    try { $Host.UI.RawUI.FlushInputBuffer() } catch { }
     $allowedTxt = ($Allowed -join ' / ')
     for ($i = 0; $i -lt $MaxTries; $i++) {
         $ans = ''
