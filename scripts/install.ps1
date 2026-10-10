@@ -175,10 +175,23 @@ function Invoke-PreDownloads {
     }
 
     if (-not $AutoYes) {
-        $ans = ''
-        try { $ans = Read-Host '  [Enter] 逐项预下载缺失离线包；[b] 从 GitHub Release 拉取完整缓存包；[s] 跳过，边装边下' } catch { $ans = '' }
-        if ($ans -match '^\s*s\s*$') { Warn '  已跳过预下载（将按需在线下载）。'; return }
-        if ($ans -match '^\s*b\s*$') {
+        # 用显式编号 1/2/3，避免误触回车直接开始下载
+        Write-Host '   [1] 逐项预下载缺失离线包（推荐：跳过 winget）'
+        Write-Host '   [2] 从 GitHub Release 拉取完整缓存包'
+        Write-Host '   [3] 跳过，边装边下'
+        $choice = ''
+        $tries = 0
+        while ($tries -lt 5) {
+            $tries++
+            $ans = ''
+            try { $ans = Read-Host '   选择 1-3' } catch { $ans = '' }
+            if ($ans -match '^\s*([123])\s*$') { $choice = $Matches[1]; break }
+            if ([string]::IsNullOrWhiteSpace($ans)) { Warn '   请直接输入 1、2 或 3（不要直接回车）。' }
+            else { Warn '   无效输入，请输入 1、2 或 3。' }
+        }
+        if (-not $choice) { Warn '   多次无效输入，默认按 [1] 逐项预下载。'; $choice = '1' }
+        if ($choice -eq '3') { Warn '  已跳过预下载（将按需在线下载）。'; return }
+        if ($choice -eq '2') {
             Info '  从 GitHub Release 拉取完整缓存包 ...'
             if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
             Warn '  未获取到缓存包（可能尚未发布），继续逐项预下载。'
