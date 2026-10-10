@@ -112,7 +112,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish-cache.ps1 -Tag cache-
 
 - 会把整份 `cache\` 打成 `cache-bundle.zip`（含 `manifest.json`）上传到 Release，并附带 `.sha256`。
 - 目标机运行 `install.cmd` 时，在「安装前检查」处选择 **[1] 从服务器同步完整离线包（GitHub Release）** 即可拉取整包；也可直接 `install.ps1 -FromRelease`。
-- 拉取走脚本内置镜像链（直连优先、失败自动切 `gh-proxy.com`），**支持断点续传**；下载后校验大小、解压到 `cache\`，再进入正常离线安装。
+- 拉取走脚本内置镜像链（直连优先，失败自动切 `gh-proxy.com` / `ghproxy.net`），**大文件默认多线程分段下载**（HTTP Range，默认 6 并发，**断点续传**）；镜像不支持 Range 时自动回退单流下载。下载后校验大小、解压到 `cache\`，再进入正常离线安装。
+- **多线程分段**同样作用于单个大组件（Tabby / PowerShell 7 / JetBrainsMono 字体）。并发数可用环境变量 `TABBY_SETUP_CONNECTIONS` 调整（默认 6；设为 `1` 即关闭分段、改回单流）。
 - 仓库地址默认 `Userwangj/tabby-setup`，可用环境变量 `TABBY_SETUP_REPO=owner/repo` 覆盖（适合 fork）。
 
 > 注意：这解决的是「能上网、但直连 GitHub 慢」的场景；**完全无网络的机器**仍只能用 U 盘/拷贝整个文件夹。

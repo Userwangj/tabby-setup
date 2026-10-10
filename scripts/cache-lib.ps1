@@ -444,6 +444,148 @@ function Get-FileWithProgress {
 }
 
 # ---- 多镜像下载：逐个尝试，失败时提示「切换下一个镜像」 ----
+# ============================================================
+#  多线程分段下载（HTTP Range 206 + 并行 + 断点续传）
+#  需要镜像支持 Range；不支持、文件较小或任一段失败则返回 $false，
+#  由调用方回退到单流下载。
+#  并发数可用环境变量 TABBY_SETUP_CONNECTIONS 覆盖（默认 6；设 1 即禁用分段）。
+# ============================================================
+function Get-FileSegmented {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$OutFile,
+        [long]$ExpectedBytes = 0,
+        [int]$Connections = 6,
+        [int]$TimeoutSec = 900,
+        [long]$MinBytes = 16MB,
+        [string]$Activity = 'Download',
+        [string]$LogFile = ''
+    )
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+        # 1) 探测总大小 & 是否支持 Range（bytes=0-0 → 206 + Content-Range）
+        $total = 0
+        try {
+            $preq = [System.Net.HttpWebRequest]::Create($Url)
+            $preq.UserAgent = 'tabby-setup'
+            $preq.AllowAutoRedirect = $true
+            $preq.Timeout = 30000
+            $preq.ReadWriteTimeout = 30000
+            try { $preq.ServicePoint.Expect100Continue = $false } catch { }
+            try { $preq.AddRange(0, 0) } catch { }
+            $presp = $preq.GetResponse()
+            $pstatus = 0; try { $pstatus = [int]$presp.StatusCode } catch { }
+            if ($pstatus -eq 206) {
+                $cr = [string]$presp.Headers['Content-Range']
+                if ($cr -match '/(\d+)\s*$') { $total = [long]$Matches[1] }
+            }
+            $presp.Close()
+        } catch { }
+        if ($total -le 0 -and $ExpectedBytes -gt 0) { $total = $ExpectedBytes }
+        if ($total -le 0) { return $false }
+        if ($total -lt $MinBytes) { return $false }
+
+        # 已完成：清理残留分段并直接成功
+        if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -eq $total)) {
+            Get-ChildItem ($OutFile + '.*.part*') -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+
+        # 2) 划分分段
+        $conn = [int]$Connections
+        if ($conn -lt 1) { $conn = 1 }
+        if ($conn -gt 16) { $conn = 16 }
+        $segLen = [long][Math]::Ceiling($total / $conn)
+        $ranges = @()
+        for ($i = 0; $i -lt $conn; $i++) {
+            $s = [long]$i * $segLen
+            if ($s -ge $total) { break }
+            $e = [long][Math]::Min($total - 1, $s + $segLen - 1)
+            $ranges += , @($s, $e)
+        }
+        if ($ranges.Count -le 1) { return $false }   # 仅一段，单流即可
+
+        $partOf = {
+            param($url, $start, $end, $partPath, $timeoutSec)
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                $want = $end - $start + 1
+                $existing = 0
+                if (Test-Path $partPath) { try { $existing = [long](Get-Item $partPath).Length } catch { $existing = 0 } }
+                if ($existing -eq $want) { return $true }
+                if ($existing -gt $want) { $existing = 0 }
+                $req = [System.Net.HttpWebRequest]::Create($url)
+                $req.UserAgent = 'tabby-setup'
+                $req.Timeout = $timeoutSec * 1000
+                $req.ReadWriteTimeout = $timeoutSec * 1000
+                $req.AllowAutoRedirect = $true
+                try { $req.ServicePoint.Expect100Continue = $false } catch { }
+                try { $req.AddRange($start + $existing, $end) } catch { return $false }
+                $resp = $req.GetResponse()
+                $status = 0; try { $status = [int]$resp.StatusCode } catch { }
+                if ($status -ne 206) { try { $resp.Close() } catch { }; return $false }
+                $in = $resp.GetResponseStream()
+                if ($existing -le 0 -and (Test-Path $partPath)) { Remove-Item $partPath -Force -ErrorAction SilentlyContinue }
+                $mode = if ($existing -gt 0) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
+                $out = [System.IO.File]::Open($partPath, $mode, [System.IO.FileAccess]::Write)
+                try {
+                    $buf = New-Object byte[] 262144
+                    while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) { $out.Write($buf, 0, $n) }
+                } finally { $out.Close(); $in.Close(); $resp.Close() }
+                return ((Get-Item $partPath).Length -eq $want)
+            } catch { return $false }
+        }
+
+        if ($LogFile) { Add-Content -Path $LogFile -Value ("$((Get-Date).ToString('HH:mm:ss'))  SEG $($ranges.Count)conn  $Activity  <- $Url") -Encoding UTF8 -ErrorAction SilentlyContinue }
+        if (Get-Command Info -ErrorAction SilentlyContinue) { Info ("      多线程分段下载：{0} 段并发，共 {1:N1} MB ..." -f $ranges.Count, ($total / 1MB)) }
+
+        $jobs = @(); $parts = @()
+        for ($i = 0; $i -lt $ranges.Count; $i++) {
+            $pp = ("{0}.{1}.part{2}" -f $OutFile, $total, $i)
+            $parts += $pp
+            $jobs += Start-Job -ScriptBlock $partOf -ArgumentList $Url, $ranges[$i][0], $ranges[$i][1], $pp, $TimeoutSec
+        }
+        $null = Wait-Job -Job $jobs -Timeout ($TimeoutSec + 120)
+        $allOk = $true
+        foreach ($j in $jobs) {
+            if ($j.State -eq 'Completed') {
+                $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
+                if (-not ($r -eq $true)) { $allOk = $false }
+            } else { $allOk = $false; Stop-Job -Job $j -ErrorAction SilentlyContinue }
+        }
+        Remove-Job -Job $jobs -Force -ErrorAction SilentlyContinue
+        if (-not $allOk) {
+            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn '      分段下载未全部完成，回退单流下载（分段已保留，可续传）。' }
+            return $false
+        }
+
+        # 3) 合并并校验
+        $tmpOut = $OutFile + '.joining'
+        try {
+            $out = [System.IO.File]::Create($tmpOut)
+            try {
+                foreach ($pp in $parts) {
+                    if (-not (Test-Path $pp)) { throw ('缺少分段 ' + $pp) }
+                    $fin = [System.IO.File]::OpenRead($pp)
+                    try { $fin.CopyTo($out) } finally { $fin.Close() }
+                }
+            } finally { $out.Close() }
+        } catch {
+            Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+        if ((Get-Item $tmpOut).Length -ne $total) { Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue; return $false }
+        if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+        Move-Item -Path $tmpOut -Destination $OutFile -Force
+        foreach ($pp in $parts) { Remove-Item $pp -Force -ErrorAction SilentlyContinue }
+        if ($ExpectedBytes -gt 0 -and (Get-Item $OutFile).Length -ne $ExpectedBytes) { return $false }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Get-FileFromMirrors {
     param(
         [string[]]$Urls,
@@ -456,10 +598,26 @@ function Get-FileFromMirrors {
     )
     $list = @($Urls)
     $n = $list.Count
+
+    # 大文件优先尝试多线程分段下载（需镜像支持 Range）；任一镜像成功即返回
+    $segThreshold = 16MB
+    if ($ExpectedBytes -ge $segThreshold -or $MinBytes -ge $segThreshold) {
+        $conns = 6
+        if ($env:TABBY_SETUP_CONNECTIONS) { try { $conns = [int]$env:TABBY_SETUP_CONNECTIONS } catch { $conns = 6 } }
+        if ($conns -gt 1) {
+            foreach ($u in $list) {
+                if (Get-FileSegmented -Url $u -OutFile $OutFile -ExpectedBytes $ExpectedBytes -Connections $conns -TimeoutSec $TimeoutSec -MinBytes $segThreshold -Activity $Activity -LogFile $LogFile) {
+                    return $true
+                }
+            }
+        }
+    }
+
     for ($i = 0; $i -lt $n; $i++) {
         $u = $list[$i]
         if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       Downloading ({0}/{1}): {2}" -f ($i + 1), $n, $u) }
         if (Get-FileWithProgress -Url $u -OutFile $OutFile -MinBytes $MinBytes -ExpectedBytes $ExpectedBytes -TimeoutSec $TimeoutSec -Activity $Activity -LogFile $LogFile -MirrorMode -Resume) {
+            Get-ChildItem ($OutFile + '.*.part*') -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
             return $true
         }
         if (($i + 1) -lt $n) {
@@ -481,14 +639,16 @@ function Get-GitHubMirrors {
     param([Parameter(Mandatory)][string]$DirectUrl)
     return @(
         $DirectUrl,
-        "https://gh-proxy.com/$DirectUrl"
+        "https://gh-proxy.com/$DirectUrl",
+        "https://ghproxy.net/$DirectUrl"
     )
 }
 function Get-GitHubApiMirrors {
     param([Parameter(Mandatory)][string]$ApiUrl)
     return @(
         $ApiUrl,
-        "https://gh-proxy.com/$ApiUrl"
+        "https://gh-proxy.com/$ApiUrl",
+        "https://ghproxy.net/$ApiUrl"
     )
 }
 
