@@ -1,0 +1,16 @@
+{
+  "name": "tabby-plugins",
+  "version": "1.0.0",
+  "private": true,
+  "description": "User-installed plugins for Tabby terminal",
+  "dependencies": {
+    "tabby-clickable-links": "^4.2.0",
+    "tabby-highlight": "^3.0.0",
+    "tabby-quick-cmds": "^1.2.3",
+    "tabby-save-output": "^3.1.0",
+    "tabby-search-in-browser": "^0.0.1",
+    "tabby-serial-timestamp": "^1.0.3",
+    "tabby-terminal-charset": "^2.0.2",
+    "tabby-trzsz": "^1.0.7"
+  }
+}

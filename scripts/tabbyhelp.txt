@@ -1,0 +1,67 @@
+************************************************************
+                 Tabby 自定义功能一览
+************************************************************
+
+[外观 / 主题]
+  配色         8 个霓虹主题可选 (install 时选) / 默认 TokyoNight Storm
+  玻璃         亚克力毛玻璃 - Win11 Acrylic
+  边框         细边框 · 标签内动画 · 轻微透明
+  滚动条       自定义淡紫圆角
+  启动         关闭欢迎页 / 遥控 / 恢复上次标签页
+
+[终端]
+  字体         JetBrainsMono NFM 15px + 连字
+  光标         竖状闪烁
+  回滚缓冲     100000 行
+  智能补全     灰字内联预测 - PowerShell 7 + CompletionPredictor (→ / End 采纳)
+  复制         选中即复制 · 右键粘贴 · 中键粘贴
+
+[提示符 / oh-my-posh]
+  提示符       oh-my-posh 彩色提示符 (内置炫酷主题, 默认 atomic)
+  换提示符     命令:  omp
+               -> 列出 16 个精选主题, 在终端里真彩色预览
+               -> 选编号回车, 再按 y 确认, 开新标签生效
+               -> 输入 L 可列出全部 122 个内置主题
+  推荐主题     atomic(简约高级) / powerlevel10k_rainbow(彩虹最炫)
+               blueish(冰蓝) / montys(多彩圆角) / velvet(紫罗兰)
+
+[插件 - 共 8 个]
+  clickable-links     Ctrl+点击 打开 URL / IP / 文件路径
+  save-output         标签右键 保存终端输出到文件
+  quick-cmds          Alt+Q 打开快速命令
+  highlight           关键词高亮 - 文本 / 正则
+  serial-timestamp    给会话每行加时间戳
+  terminal-charset    标签右键 切换编码 - 如 GBK
+  trzsz               SSH 上传下载 trz / tsz 传文件
+  search-in-browser   选中文本浏览器搜索
+
+[快速命令 - 按 Alt+Q 打开]
+  ADB 设备  |  logcat 日志  |  Robot 测试  |  Git  |  Python
+
+[常用快捷键]
+  Ctrl+,              打开设置
+  Ctrl+=  /  Ctrl+-   放大 / 缩小字号    Ctrl+0 重置
+  Ctrl+Shift+T        新建标签
+  Ctrl+Shift+W        关闭标签
+  Ctrl+Tab            切换标签
+  Ctrl+Shift+S / D    保存 / 关闭分屏
+  Alt+Q               快速命令菜单
+  → / End             采纳灰字补全建议
+
+[工具箱 / 常用命令 - 在 Tabby 里直接输入]
+  tabbyhelp    显示本帮助
+  tabbycolors  查看当前配色是否生效 (主题名 + 16 色调色板)
+  tabbytheme   切换 Tabby 终端配色 (8 个霓虹主题, 真彩色预览, 自动重启)
+  omp          切换 oh-my-posh 提示符主题 (16 精选 + 122 全部)
+
+  注意: tabbytheme 换的是 "终端配色" (标签发光/背景/ANSI 16 色),
+        omp 换的是 "命令提示符", 两者互不影响, 可分别设置。
+
+[一键同步包 - 新设备一次搞定]
+  准备离线包(网好时):  @TABBY_SETUP_DIR@\scripts\prefetch.cmd
+  安装:                @TABBY_SETUP_DIR@\install.cmd
+  (优先用 cache\ 离线包, 秒装; 检测到新版会询问是否更新)
+  一键: 双击 install.cmd 即可（自动判断网络/离线包，仅有更新时询问）
+  可选: scripts\install.ps1 -Offline 只用离线 | -Online 强制最新 | -Yes 无询问
+  (自动装 Tabby + 颜色 + 字体 + 插件 + oh-my-posh, 全自动无需手动)
+************************************************************^M

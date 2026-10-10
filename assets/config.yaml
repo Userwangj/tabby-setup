@@ -1,0 +1,212 @@
+version: 8
+appearance:
+  theme: Follow the color scheme
+  frame: thin
+  tabsLocation: top
+  flexTabs: true
+  opacity: 0.95
+  vibrancy: true
+  vibrancyType: blur
+  colorSchemeMode: dark
+  spaciness: 1
+  cycleTabs: true
+  lastTabClosesWindow: false
+  css: >-
+    /* 美化终端滚动条 */
+
+    .xterm-viewport::-webkit-scrollbar { width: 8px; }
+
+    .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+
+    .xterm-viewport::-webkit-scrollbar-thumb { background:
+    rgba(122,162,247,.35); border-radius: 4px; }
+
+    .xterm-viewport::-webkit-scrollbar-thumb:hover { background:
+    rgba(122,162,247,.65); }
+terminal:
+  profile: local:powershell
+  font: JetBrainsMono NFM
+  fontSize: 15
+  fontWeight: 400
+  fontWeightBold: 700
+  ligatures: true
+  cursor: block
+  cursorBlink: true
+  scrollbackLines: 100000
+  copyOnSelect: true
+  rightClick: clipboard
+  pasteOnMiddleClick: true
+  drawBoldTextInBrightColors: true
+  bracketedPaste: true
+  sixel: true
+  detectProgress: true
+  bell: 'off'
+  scrollOnInput: true
+  showRecentProfiles: 5
+  paneResizeStep: 0.1
+  linePadding: 1
+  colorScheme:
+    name: TokyoNight Storm
+    foreground: '#c0caf5'
+    background: '#24283b'
+    cursor: '#c0caf5'
+    colors:
+      - '#1d202f'
+      - '#f7768e'
+      - '#9ece6a'
+      - '#e0af68'
+      - '#7aa2f7'
+      - '#bb9af7'
+      - '#7dcfff'
+      - '#a9b1d6'
+      - '#414868'
+      - '#f7768e'
+      - '#9ece6a'
+      - '#e0af68'
+      - '#7aa2f7'
+      - '#bb9af7'
+      - '#7dcfff'
+      - '#c0caf5'
+  lightColorScheme:
+    name: TokyoNight Day
+    foreground: '#3760bf'
+    background: '#e1e2e7'
+    cursor: '#3760bf'
+    colors:
+      - '#e9e9ed'
+      - '#f52a65'
+      - '#587539'
+      - '#8c6c3e'
+      - '#2e7de9'
+      - '#9854f1'
+      - '#007197'
+      - '#6172b0'
+      - '#a1a6c5'
+      - '#f52a65'
+      - '#587539'
+      - '#8c6c3e'
+      - '#2e7de9'
+      - '#9854f1'
+      - '#007197'
+      - '#3760bf'
+  searchOptions: {}
+enableWelcomeTab: false
+recoverTabs: false
+enableAutomaticUpdates: true
+enableAnalytics: false
+hideTray: false
+showProfileTree: false
+hacks:
+  disableGPU: false
+  disableVibrancyWhileDragging: true
+  enableFluentBackground: false
+  globalHotkey: null
+profiles: []
+groups: []
+configSync:
+  parts: {}
+hotkeys:
+  toggle-window:
+    - Ctrl-Space
+ssh: {}
+clickableLinks: {}
+trzszPlugin: {}
+charsetPlugin: {}
+serialTimestampPlugin: {}
+searchInBrowserPlugin: {}
+saveOutput: {}
+qc:
+  groups:
+    - name: ADB & 设备
+      cmds:
+        - name: 查看连接设备
+          text: adb devices
+          appendCR: true
+        - name: 重启 ADB 服务
+          text: adb kill-server; adb start-server
+          appendCR: true
+        - name: 设备型号与版本
+          text: >-
+            adb shell getprop ro.product.model; adb shell getprop
+            ro.build.version.release
+          appendCR: true
+        - name: 屏幕截图
+          text: >-
+            adb shell screencap -p /sdcard/screen.png; adb pull
+            /sdcard/screen.png
+          appendCR: true
+    - name: 日志 logcat
+      cmds:
+        - name: 实时日志
+          text: adb logcat -v time
+          appendCR: true
+        - name: 清空日志缓冲
+          text: adb logcat -c
+          appendCR: true
+        - name: 日志保存到文件
+          text: adb logcat -v threadtime | Out-File -Encoding utf8 logcat.txt
+          appendCR: true
+        - name: 日志过滤关键字
+          text: adb logcat -v time | Select-String "关键字"
+          appendCR: true
+    - name: Robot 测试
+      cmds:
+        - name: 进入项目目录
+          text: Set-Location D:\autoTest\24MMAutoST
+          appendCR: true
+        - name: 运行蓝牙开关测试
+          text: >-
+            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            RF/suites/bluetooth/bt_switch_settings.robot
+          appendCR: true
+        - name: 运行 WiFi 开关测试
+          text: >-
+            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            RF/suites/wifi/wifi_switch.robot
+          appendCR: true
+        - name: 运行蓝牙配对压力
+          text: >-
+            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            RF/suites/bluetooth/bt_pair_stress.robot
+          appendCR: true
+        - name: 打开测试报告
+          text: Invoke-Item D:\autoTest\24MMAutoST\results\report.html
+          appendCR: true
+    - name: Git
+      cmds:
+        - name: 查看状态
+          text: git status
+          appendCR: true
+        - name: 拉取更新
+          text: git pull
+          appendCR: true
+        - name: 最近提交
+          text: git log --oneline -10
+          appendCR: true
+        - name: 全部暂存
+          text: git add -A; git status
+          appendCR: true
+    - name: Python 环境
+      cmds:
+        - name: 版本检查
+          text: python --version; pip --version
+          appendCR: true
+        - name: 安装项目依赖
+          text: Set-Location D:\autoTest\24MMAutoST; pip install -r requirements.txt
+          appendCR: true
+    - name: 帮助
+      cmds:
+        - name: 显示功能清单
+          text: tabbyhelp
+          appendCR: true
+  cmds: []
+highlightPlugin:
+  advanced: {}
+accessibility: {}
+pluginBlacklist: []
+providerBlacklist: []
+commandBlacklist: []
+profileDefaults:
+  ssh:
+    disableDynamicTitle: true
+profileBlacklist: []
