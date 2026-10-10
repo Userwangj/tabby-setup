@@ -6,6 +6,10 @@
       0. Auto-detect (no flags needed): no network -> use prepared pack;
          network + no updates -> silently use pack; network + updates -> ask
          (default = prepared); no pack -> online download (or stop if offline)
+      0b. First run (no cache, default mode): scan all deps, show a plan,
+          batch-download the missing ones first (reuses prefetch.ps1),
+          then install everything from cache. Existing components are
+          left to the original per-component interaction.
       1. Tabby terminal   (cache -> direct download -> winget)
       2. config.yaml      (font / terminal / quick commands)
       3. Neon color theme  (interactive picker with live ANSI preview
@@ -92,6 +96,79 @@ function Find-Tabby {
 
 function Update-Path {
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+}
+
+# ---- 安装前扫描 + 批量预下载 ----------------------------------------
+# 第一次使用（无 cache）时，先统一检测本机状态与 cache，列出计划，
+# 再把“缺失且本机没有”的组件一次性连续下载好，随后进入正常安装流程；
+# 本机已存在的组件不预下载，仍走原有交互（保留现有 / 安装本程序版）。
+function Find-PwshPath {
+    $c = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if ($c) { return $c }
+    return @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+function Test-CacheHit([string]$Key) {
+    $f = Get-CachePath $CacheDir $Key
+    if (-not $f) { return $false }
+    return (Test-Path $f) -and ((Get-Item $f -ErrorAction SilentlyContinue).Length -gt 0)
+}
+function Get-InstallPrePlan {
+    $plan = New-Object System.Collections.ArrayList
+    $regPath = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+    $fonts = (Get-ItemProperty $regPath -ErrorAction SilentlyContinue).PSObject.Properties.Name
+    $omp = (Get-Command oh-my-posh -ErrorAction SilentlyContinue).Source
+    if (-not $omp) { $a = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\oh-my-posh.exe'; if (Test-Path $a) { $omp = $a } }
+    if (-not $omp) { $a = Join-Path $env:LOCALAPPDATA 'Programs\oh-my-posh\oh-my-posh.exe'; if (Test-Path $a) { $omp = $a } }
+    [void]$plan.Add([pscustomobject]@{ Key = 'tabby'; Name = 'Tabby';            Present = [bool](Find-Tabby);   Cached = (Test-CacheHit 'tabby') })
+    [void]$plan.Add([pscustomobject]@{ Key = 'font';  Name = 'JetBrainsMono NF'; Present = [bool]($fonts -match 'JetBrainsMono Nerd Font Mono'); Cached = (Test-CacheHit 'font') })
+    [void]$plan.Add([pscustomobject]@{ Key = 'pwsh';  Name = 'PowerShell 7';     Present = [bool](Find-PwshPath); Cached = (Test-CacheHit 'pwsh') })
+    [void]$plan.Add([pscustomobject]@{ Key = 'omp';   Name = 'oh-my-posh';       Present = [bool]$omp;            Cached = (Test-CacheHit 'omp') })
+    [void]$plan.Add([pscustomobject]@{ Key = 'node';  Name = 'Node.js';          Present = [bool](Get-Command npm.cmd -ErrorAction SilentlyContinue); Cached = (Test-CacheHit 'node') })
+    [void]$plan.Add([pscustomobject]@{ Key = 'modules'; Name = 'PS 模块';        Present = $false; Cached = [bool]((Get-CachedModuleVersion $CacheDir 'PSReadLine') -or (Get-CachedModuleVersion $CacheDir 'CompletionPredictor')) })
+    [void]$plan.Add([pscustomobject]@{ Key = 'npm';   Name = 'npm 插件';         Present = $false; Cached = ((Test-Path (Join-Path $CacheDir 'npm\node_modules.zip')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules'))) })
+    return $plan
+}
+function Invoke-PreDownloads {
+    $plan = Get-InstallPrePlan
+    $installerKeys = @('tabby', 'font', 'pwsh', 'omp', 'node')
+    $download = @()
+    foreach ($r in $plan) {
+        if ($r.Cached) { continue }
+        if (($installerKeys -contains $r.Key) -and (-not $r.Present)) { $download += $r.Key }
+    }
+    if ($download.Count -eq 0) { return }   # 缓存已就绪或组件都在，保持原流程
+    # 模块 / npm 插件：仅在本次确实要安装组件时顺带预取（npm 需本机已有 npm.cmd）
+    $modCached = [bool]((Get-CachedModuleVersion $CacheDir 'PSReadLine') -or (Get-CachedModuleVersion $CacheDir 'CompletionPredictor'))
+    $npmCached = (Test-Path (Join-Path $CacheDir 'npm\node_modules.zip')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules'))
+    if (-not $modCached) { $download += 'modules' }
+    if ((Get-Command npm.cmd -ErrorAction SilentlyContinue) -and -not $npmCached) { $download += 'npm' }
+
+    Info ''
+    Info '  ========== 安装前检查 / 预下载计划 =========='
+    Info ('  {0,-20} {1,-10} {2,-8} {3}' -f '组件', '本机', '离线包', '处理')
+    Info ('  ' + ('-' * 56))
+    foreach ($r in $plan) {
+        $st = if ($installerKeys -contains $r.Key) { if ($r.Present) { '已安装' } else { '未安装' } } else { '—' }
+        $cf = if ($r.Cached) { '有' } else { '无' }
+        if ($r.Cached) { $act = '用离线包' }
+        elseif ($download -contains $r.Key) { $act = '预下载' }
+        elseif ($r.Present) { $act = '稍后询问' }
+        else { $act = '跳过' }
+        Info ('  {0,-20} {1,-10} {2,-8} {3}' -f $r.Name, $st, $cf, $act)
+    }
+    Info ''
+
+    if (-not (Test-Network)) { Warn '  [预下载] 未检测到网络，跳过批量预下载，将按需在线获取。'; return }
+    if (-not $AutoYes) {
+        $ans = ''
+        try { $ans = Read-Host '  [Enter] 先批量下载缺失离线包（推荐：跳过 winget）；[s] 跳过，边装边下' } catch { $ans = '' }
+        if ($ans -match '^\s*s\s*$') { Warn '  已跳过预下载（将按需在线下载）。'; return }
+    }
+
+    Info ("  开始预下载 " + $download.Count + " 项到 cache\（连续下载 / 自动切镜像 / 失败重试）...")
+    $pfScript = Join-Path $ScriptDir 'prefetch.ps1'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $pfScript -Only ($download -join ',')
+    Info ''
 }
 
 # ---- ANSI true-color helpers (for theme preview) ----
@@ -268,6 +345,9 @@ $manifest = Get-CacheManifest $CacheDir
 $pref = Invoke-VersionCheck -CacheDir $CacheDir -Manifest $manifest -Mode $RunMode -Yes $AutoYes
 if ($pref -and $pref.ContainsKey('__cancel')) { Warn '安装已结束（见上方提示）。'; exit 0 }
 if ($RunMode -eq 'cache' -and -not (Test-Path $CacheDir)) { Warn '  [离线模式] 未发现 cache\，需要下载的组件将被跳过。请先运行 prefetch.cmd。' }
+
+# --- 预下载阶段：默认(ask)模式下，先把“缺失且本机没有”的组件一次性连续下载好 ---
+if ($RunMode -eq 'ask') { Invoke-PreDownloads }
 
 # --- 1/9. Install Tabby if missing (cache -> direct download -> winget) ---
 Info '[1/9] Tabby terminal'

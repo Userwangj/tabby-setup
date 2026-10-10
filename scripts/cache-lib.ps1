@@ -650,7 +650,7 @@ function Invoke-VersionCheck {
     if (-not $hasAnyCache) {
         Write-Host ''
         if ($online) {
-            Write-Host '  [离线包] 未发现 cache\，将直接联网下载安装（镜像优先，进度实时显示）。' -ForegroundColor Yellow
+            Write-Host '  [离线包] 未发现 cache\，将先批量预下载缺失组件，再离线安装（直连优先、自动切镜像）。' -ForegroundColor Yellow
             return @{}
         }
         Write-Host '  [离线包] 未发现 cache\，且未检测到网络连接。' -ForegroundColor Red

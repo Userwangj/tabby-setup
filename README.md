@@ -74,7 +74,7 @@ tabby-setup\
 
 > **痛点**：上面的组件大多托管在 GitHub，国内直连下载经常很慢甚至卡死。
 >
-> **方案**：在**网络好的机器**上先跑一次 `prefetch.cmd`，把所有安装包下好放进本目录 `cache\`；之后**整个文件夹**（含 `cache\`）拷到任意新设备，运行 `install.cmd` 即**离线秒装**，完全不用碰 GitHub。若没有 `cache\`，`install.cmd` 也会**自动在线下载**（直连优先、失败自动切镜像）并在**同一个窗口实时显示进度**——全程一键，只有「版本选择 / 主题选择」这类需要你决定的地方才会停下来询问。
+> **方案**：在**网络好的机器**上先跑一次 `prefetch.cmd`，把所有安装包下好放进本目录 `cache\`；之后**整个文件夹**（含 `cache\`）拷到任意新设备，运行 `install.cmd` 即**离线秒装**，完全不用碰 GitHub。若没有 `cache\`，`install.cmd` 会先弹出**「安装前检查」表并批量预下载缺失组件**（连续下载、直连优先、失败自动切镜像，跳过 winget 的长时间等待），下好后再离线安装；本机已装的组件不预下载、仍按原交互询问。全程一键，只有「版本选择 / 主题选择」这类需要你决定的地方才会停下来询问。
 
 ### 1. 准备离线包（网好时执行一次）
 
@@ -99,12 +99,23 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prefetch.ps1 -Only tabby,font
 | PSReadLine / CompletionPredictor | `cache\modules\<名称>\` |
 | 8 个 npm 插件 | `cache\npm\node_modules.zip` |
 
-### 2. 在新设备安装（离线）
+### 2. 在新设备安装
 
 ```powershell
 # 双击 install.cmd，或：
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
+
+**有 `cache\` 时**：直接离线秒装。
+
+**没有 `cache\` 时（首次直接安装）**：默认模式下 `install.ps1` 会先做一次**安装前检查 + 批量预下载**：
+
+1. 扫描本机与 `cache\`，列出每个组件的「已安装 / 未安装 / 离线包有无 / 处理方式」；
+2. 对本机**没有且 cache 里也没有**的组件，**一次性连续批量下载**（等同 prefetch 的下载阶段，直接跳过 winget 的长时间等待）；
+3. 本机**已存在**的组件**不预下载**，仍按原逻辑询问「保留现有 / 安装本程序版」；
+4. 下完进入正常安装流程，此时全部走离线包，**不再触发 winget、不再按需下载**。
+
+> 效果：**第一次用等同于内置了一次 prefetch**，装完还顺带得到一份完整 `cache\`，之后同机或拷给别的机器都是离线秒装。想跳过批量下载可在该步按 `s`（改为边装边下）。
 
 ### 3. 版本检测与选择（自动）
 
@@ -170,6 +181,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Ours
 > - **字体**：GitHub 官方源 → 失败则用镜像（`gh-proxy.com`）
 > - **PowerShell 7**：winget（限时 5 分钟）→ 超时/失败则用 `gh-proxy.com` 镜像下载 `.msixbundle`，`Add-AppxPackage` 用户级安装（免管理员）
 > - **断点续传**：下载中途断开后重试会从已下载位置继续（服务器支持 Range 时生效）；所有镜像都失败时会给出明确汇总
+> - **首次安装**：默认先「安装前检查 + 批量预下载缺失组件」再离线安装；`-Offline` / `-Online` 模式不触发该阶段
 
 ---
 

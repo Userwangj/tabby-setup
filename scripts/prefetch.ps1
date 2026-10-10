@@ -13,6 +13,8 @@
 param(
     [string[]]$Only = @()
 )
+# 兼容以 "-Only a,b,c" 方式调用（PowerShell -File 可能把整串当成单个元素）
+if ($Only.Count -eq 1 -and ($Only[0] -like '*,*')) { $Only = $Only[0] -split ',' }
 $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RootDir   = Split-Path -Parent $ScriptDir
@@ -34,6 +36,8 @@ Info '=================================================='
 Info ' 准备离线安装包 (prefetch)'
 Info (" 缓存目录: " + $CacheDir)
 Info (" 进度日志: " + $dlLog)
+$onlyTxt = if ($Only.Count -eq 0) { '全部' } else { $Only -join ', ' }
+Info (" 组件范围: " + $onlyTxt)
 Info '=================================================='
 
 # --- Tabby ---
