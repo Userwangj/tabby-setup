@@ -283,7 +283,7 @@ if ($tabbyExe) {
     } elseif ($src -eq 'online') {
         try {
             $rel = $null
-            foreach ($api in @('https://api.github.com/repos/Eugeny/tabby/releases/latest', 'https://ghfast.top/https://api.github.com/repos/Eugeny/tabby/releases/latest')) {
+            foreach ($api in (Get-GitHubApiMirrors 'https://api.github.com/repos/Eugeny/tabby/releases/latest')) {
                 try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 20; if ($rel) { break } } catch { }
             }
             $asset = $null
@@ -293,7 +293,7 @@ if ($tabbyExe) {
             }
             if ($asset) {
                 $out = Get-CachePath $CacheDir 'tabby'
-                $urls = @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)
+                $urls = Get-GitHubMirrors $asset.browser_download_url
                 [void](Get-FileFromMirrors -Urls $urls -OutFile $out -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 600 -Activity 'Tabby')
                 if ((Test-Path $out) -and ((Get-Item $out).Length -gt 40MB)) {
                     Set-ManifestEntry $CacheDir 'tabby' ([string]$rel.tag_name) $asset.name
@@ -355,11 +355,7 @@ if ($installedFonts -match 'JetBrainsMono Nerd Font Mono') {
         $tmp = Join-Path $env:TEMP 'tabby-setup-font'
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
         $tmpZip = Join-Path $tmp 'JetBrainsMono.zip'
-        $urls = @(
-            'https://ghfast.top/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip',
-            'https://gh-proxy.com/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip',
-            'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
-        )
+        $urls = Get-GitHubMirrors 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
         [void](Get-FileFromMirrors -Urls $urls -OutFile $tmpZip -MinBytes 25MB -TimeoutSec 300 -Activity 'JetBrainsMono NF')
         if ((Test-Path $tmpZip) -and ((Get-Item $tmpZip).Length -gt 25MB) -and (Test-ZipFile $tmpZip)) {
             Copy-Item $tmpZip (Get-CachePath $CacheDir 'font') -Force -ErrorAction SilentlyContinue
@@ -438,7 +434,7 @@ if (-not $pwshExe -or $installOwnPwsh) {
                 $ver = ([string]$tag).TrimStart('v')
                 $out = Get-CachePath $CacheDir 'pwsh'
                 $gh = "https://github.com/PowerShell/PowerShell/releases/download/v$ver/PowerShell-$ver.msixbundle"
-                $purls = @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)
+                $purls = Get-GitHubMirrors $gh
                 [void](Get-FileFromMirrors -Urls $purls -OutFile $out -MinBytes 50MB -TimeoutSec 900 -Activity 'Downloading PowerShell 7')
                 if ((Test-Path $out) -and ((Get-Item $out).Length -gt 50MB)) {
                     Set-ManifestEntry $CacheDir 'pwsh' $ver "PowerShell-$ver.msixbundle"
@@ -539,7 +535,7 @@ if (-not $omp -or $installOwnOmp) {
             if (-not $omp -or $installOwnOmp) {
                 try {
                     $rel = $null
-                    foreach ($api in @('https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest', 'https://ghfast.top/https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest')) {
+                    foreach ($api in (Get-GitHubApiMirrors 'https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest')) {
                         try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 20; if ($rel) { break } } catch { }
                     }
                     $assetExe = $null; $assetThemes = $null
@@ -549,13 +545,13 @@ if (-not $omp -or $installOwnOmp) {
                         $assetThemes = $rel.assets | Where-Object { $_.name -eq 'themes.zip' } | Select-Object -First 1
                     }
                     if ($assetExe) {
-                        $ompUrls = @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)
+                        $ompUrls = Get-GitHubMirrors $assetExe.browser_download_url
                         [void](Get-FileFromMirrors -Urls $ompUrls -OutFile $ompExeCache -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity 'oh-my-posh')
                         if ((Test-Path $ompExeCache) -and ((Get-Item $ompExeCache).Length -gt 1MB)) {
                             Set-ManifestEntry $CacheDir 'omp' ([string]$rel.tag_name) $assetExe.name
                         }
                         if ($assetThemes) {
-                            $themeUrls = @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)
+                            $themeUrls = Get-GitHubMirrors $assetThemes.browser_download_url
                             [void](Get-FileFromMirrors -Urls $themeUrls -OutFile $ompThemesCache -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes')
                         }
                     }

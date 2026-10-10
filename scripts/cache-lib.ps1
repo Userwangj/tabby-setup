@@ -310,10 +310,17 @@ function Get-FileWithProgress {
         [string]$Activity = 'Downloading',
         [long]$ExpectedBytes = 0,
         [string]$LogFile = '',
-        [switch]$MirrorMode
+        [switch]$MirrorMode,
+        [switch]$Resume
     )
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        # 续传：已存在的不完整文件作为起点（服务器需支持 Range，返回 206）
+        $existing = 0
+        if ($Resume -and (Test-Path $OutFile)) {
+            try { $existing = [long](Get-Item $OutFile).Length } catch { $existing = 0 }
+            if ($existing -gt 0 -and $ExpectedBytes -gt 0 -and $existing -eq $ExpectedBytes) { return $true }
+        }
         $resp = $null
         for ($attempt = 1; $attempt -le 3; $attempt++) {
             try {
@@ -323,6 +330,7 @@ function Get-FileWithProgress {
                 $req.ReadWriteTimeout = $TimeoutSec * 1000
                 $req.AllowAutoRedirect = $true
                 try { $req.ServicePoint.Expect100Continue = $false } catch { }
+                if ($existing -gt 0) { try { $req.AddRange([int]$existing) } catch { $existing = 0 } }
                 $resp = $req.GetResponse()
                 break
             } catch {
@@ -330,19 +338,28 @@ function Get-FileWithProgress {
                 Start-Sleep -Seconds (2 * $attempt)
             }
         }
+        $status = 0
+        try { $status = [int]$resp.StatusCode } catch { $status = 0 }
+        $resuming = ($existing -gt 0 -and $status -eq 206)
+        if ($existing -gt 0 -and -not $resuming) { $existing = 0 }   # 服务器不支持续传 → 重下
         $total = $resp.ContentLength
+        if ($resuming -and $total -gt 0) { $total = $existing + $total }  # 还原完整文件大小
         if ($total -le 0 -and $ExpectedBytes -gt 0) { $total = $ExpectedBytes }
         $in = $resp.GetResponseStream()
         $dir = Split-Path -Parent $OutFile
         if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-        if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
-        $out = [System.IO.File]::Create($OutFile)
+        if ($resuming) {
+            $out = [System.IO.File]::Open($OutFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+        } else {
+            if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+            $out = [System.IO.File]::Create($OutFile)
+        }
         $lastLog = [datetime]::MinValue
         $lastPct = -100
         if ($LogFile) { Add-Content -Path $LogFile -Value ("$((Get-Date).ToString('HH:mm:ss'))  START  $Activity  <- $Url") -Encoding UTF8 -ErrorAction SilentlyContinue }
         try {
             $buffer = New-Object byte[] 131072
-            $sum = 0
+            $sum = $existing
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             while (($read = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
                 $out.Write($buffer, 0, $read)
@@ -385,7 +402,7 @@ function Get-FileWithProgress {
         if ($total -gt 0 -and $len -ne $total) {
             $script:LastDownloadError = ("Incomplete download ($([math]::Round($len/1MB,1)) / $([math]::Round($total/1MB,1)) MB)")
             if (-not $MirrorMode -and (Get-Command Warn -ErrorAction SilentlyContinue)) { Warn "       $($script:LastDownloadError)" }
-            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            if (-not $Resume) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
             return $false
         }
         if ($ExpectedBytes -gt 0 -and $len -ne $ExpectedBytes) {
@@ -394,7 +411,7 @@ function Get-FileWithProgress {
             Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             return $false
         }
-        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { $script:LastDownloadError = ("文件过小（$len 字节）"); Remove-Item $OutFile -Force -ErrorAction SilentlyContinue; return $false }
+        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { $script:LastDownloadError = ("文件过小（$len 字节）"); if (-not $Resume) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }; return $false }
         return $true
     } catch {
         $script:LastDownloadError = $_.Exception.Message
@@ -403,12 +420,25 @@ function Get-FileWithProgress {
             if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Download error: $($_.Exception.Message)" }
         }
         # 最后兜底：curl（静默），应对个别 URL 的 TLS/代理握手问题
+        $before = 0
+        if (Test-Path $OutFile) { try { $before = [long](Get-Item $OutFile).Length } catch { $before = 0 } }
         try {
             curl.exe -L -s -m $TimeoutSec --retry 3 --retry-delay 2 -o $OutFile $Url
-            if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 0) -and ($MinBytes -le 0 -or (Get-Item $OutFile).Length -ge $MinBytes)) { return $true }
+            if (Test-Path $OutFile) {
+                $clen = [long](Get-Item $OutFile).Length
+                # 已知精确大小则以其为准；否则要求本次确有进展，避免残留旧文件被误判为成功
+                if ($ExpectedBytes -gt 0) {
+                    $okCurl = ($clen -eq $ExpectedBytes)
+                } elseif ($MinBytes -gt 0) {
+                    $okCurl = (($clen -ge $MinBytes) -and (($clen -gt $before) -or ($before -eq 0)))
+                } else {
+                    $okCurl = (($clen -gt $before) -or ($before -eq 0 -and $clen -gt 0))
+                }
+                if ($okCurl) { return $true }
+            }
         } catch { }
-        # 失败：清理可能残留的不完整文件，避免下次被误当有效包使用
-        Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+        # 失败：清理残留（续传模式保留不完整文件以便下次继续）
+        if (-not $Resume) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
         return $false
     }
 }
@@ -429,7 +459,7 @@ function Get-FileFromMirrors {
     for ($i = 0; $i -lt $n; $i++) {
         $u = $list[$i]
         if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       Downloading ({0}/{1}): {2}" -f ($i + 1), $n, $u) }
-        if (Get-FileWithProgress -Url $u -OutFile $OutFile -MinBytes $MinBytes -ExpectedBytes $ExpectedBytes -TimeoutSec $TimeoutSec -Activity $Activity -LogFile $LogFile -MirrorMode) {
+        if (Get-FileWithProgress -Url $u -OutFile $OutFile -MinBytes $MinBytes -ExpectedBytes $ExpectedBytes -TimeoutSec $TimeoutSec -Activity $Activity -LogFile $LogFile -MirrorMode -Resume) {
             return $true
         }
         if (($i + 1) -lt $n) {
@@ -440,7 +470,26 @@ function Get-FileFromMirrors {
             if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       所有镜像均无法下载（共 {0} 个）{1}" -f $n, $reason) }
         }
     }
+    # 全部镜像失败：清理续传残留，避免被后续的大小下限误判为有效
+    Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
     return $false
+}
+
+# ---- 下载镜像顺序（改这里即可全局调整）----
+# 直连优先，其次公共反代；已移除常连接重置的 ghfast.top。
+function Get-GitHubMirrors {
+    param([Parameter(Mandatory)][string]$DirectUrl)
+    return @(
+        $DirectUrl,
+        "https://gh-proxy.com/$DirectUrl"
+    )
+}
+function Get-GitHubApiMirrors {
+    param([Parameter(Mandatory)][string]$ApiUrl)
+    return @(
+        $ApiUrl,
+        "https://gh-proxy.com/$ApiUrl"
+    )
 }
 
 # ---- manifest ----
@@ -495,8 +544,7 @@ function Ver-Newer([string]$latest, [string]$cached) {
     return ($a -gt $b)
 }
 function Get-LatestGitHubTag([string]$repo) {
-    foreach ($api in @("https://api.github.com/repos/$repo/releases/latest",
-                       "https://ghfast.top/https://api.github.com/repos/$repo/releases/latest")) {
+    foreach ($api in (Get-GitHubApiMirrors "https://api.github.com/repos/$repo/releases/latest")) {
         try {
             $r = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 12
             if ($r.tag_name) { return [string]$r.tag_name }
@@ -560,7 +608,7 @@ function Resolve-Source {
 
 # ---- 网络连通性探测（任一可靠端点有 HTTP 响应即视为在线）----
 function Test-Network {
-    foreach ($u in @('https://api.github.com/', 'https://ghfast.top/')) {
+    foreach ($u in @('https://api.github.com/', 'https://gh-proxy.com/')) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $req = [System.Net.HttpWebRequest]::Create($u)

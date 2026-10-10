@@ -43,7 +43,7 @@ if (Want 'tabby') {
     $tag = Get-LatestGitHubTag 'Eugeny/tabby'
     $rel = $null
     if ($tag) {
-        foreach ($api in @('https://api.github.com/repos/Eugeny/tabby/releases/latest', 'https://ghfast.top/https://api.github.com/repos/Eugeny/tabby/releases/latest')) {
+        foreach ($api in (Get-GitHubApiMirrors 'https://api.github.com/repos/Eugeny/tabby/releases/latest')) {
             try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 20; if ($rel) { break } } catch { }
         }
     }
@@ -56,7 +56,7 @@ if (Want 'tabby') {
     else {
         $dst = Get-CachePath $CacheDir 'tabby'
         $ok = $false
-        $urls = @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)
+        $urls = Get-GitHubMirrors $asset.browser_download_url
         if (Get-FileFromMirrors -Urls $urls -OutFile $dst -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 900 -Activity "Tabby $tag" -LogFile $dlLog) { $ok = $true }
         if ($ok) { Set-ManifestEntry $CacheDir 'tabby' $tag $asset.name; Ok "  已准备 Tabby $tag"; $results['Tabby'] = $tag }
         else { Warn '  下载失败'; $results['Tabby'] = '失败' }
@@ -69,11 +69,7 @@ if (Want 'font') {
     Info '[字体] 查询最新版本...'
     $tag = Get-LatestGitHubTag 'ryanoasis/nerd-fonts'
     $dst = Get-CachePath $CacheDir 'font'
-    $urls = @(
-        'https://ghfast.top/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip',
-        'https://gh-proxy.com/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip',
-        'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
-    )
+    $urls = Get-GitHubMirrors 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
     $ok = $false
     if (Get-FileFromMirrors -Urls $urls -OutFile $dst -MinBytes 25MB -TimeoutSec 600 -Activity 'JetBrainsMono NF' -LogFile $dlLog) { $ok = $true }
     if ($ok -and -not (Test-ZipFile $dst)) { Warn '  字体包校验失败（不完整）'; $ok = $false }
@@ -110,7 +106,7 @@ if (Want 'pwsh') {
         $dst = Get-CachePath $CacheDir 'pwsh'
         $gh = "https://github.com/PowerShell/PowerShell/releases/download/v$ver/PowerShell-$ver.msixbundle"
         $ok = $false
-        $purls = @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)
+        $purls = Get-GitHubMirrors $gh
         if (Get-FileFromMirrors -Urls $purls -OutFile $dst -MinBytes 50MB -TimeoutSec 900 -Activity "PowerShell $ver" -LogFile $dlLog) { $ok = $true }
         if ($ok -and -not (Test-ZipFile $dst)) { Warn '  PowerShell MSIX 校验失败（不完整）'; $ok = $false }
         if ($ok) { Set-ManifestEntry $CacheDir 'pwsh' $ver "PowerShell-$ver.msixbundle"; Ok "  已准备 PowerShell $ver"; $results['PowerShell'] = $ver }
@@ -125,7 +121,7 @@ if (Want 'omp') {
     $tag = Get-LatestGitHubTag 'JanDeDobbeleer/oh-my-posh'
     $rel = $null
     if ($tag) {
-        foreach ($api in @('https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest', 'https://ghfast.top/https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest')) {
+        foreach ($api in (Get-GitHubApiMirrors 'https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest')) {
             try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 20; if ($rel) { break } } catch { }
         }
     }
@@ -142,12 +138,12 @@ if (Want 'omp') {
     else {
         $dstExe = Get-CachePath $CacheDir 'omp'
         $ok = $false
-        $exeUrls = @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)
+        $exeUrls = Get-GitHubMirrors $assetExe.browser_download_url
         if (Get-FileFromMirrors -Urls $exeUrls -OutFile $dstExe -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity "oh-my-posh $tag" -LogFile $dlLog) { $ok = $true }
         # 主题包（可选，供 omp 预览全部主题用）
         if ($assetThemes) {
             $dstTh = Get-CachePath $CacheDir 'ompthemes'
-            $thUrls = @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)
+            $thUrls = Get-GitHubMirrors $assetThemes.browser_download_url
             [void](Get-FileFromMirrors -Urls $thUrls -OutFile $dstTh -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes' -LogFile $dlLog)
         }
         if ($ok) { Set-ManifestEntry $CacheDir 'omp' $tag $assetExe.name; Ok "  已准备 oh-my-posh $tag"; $results['oh-my-posh'] = $tag }

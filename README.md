@@ -65,7 +65,7 @@ tabby-setup\
 | Windows 10/11 | 已在本机验证 Win11 (build 26200) | — |
 | winget | 优先用来自动安装 Tabby 与 Node.js（不可用时脚本会自动回退） | `winget --version` |
 | Node.js / npm | 用于安装插件；脚本检测不到时会自动安装 | `node --version` / `npm.cmd --version` |
-| 网络 | 下载 Tabby、Node.js、字体与 PowerShell 7；GitHub 慢时脚本会自动用镜像 | — |
+| 网络 | 下载 Tabby、Node.js、字体与 PowerShell 7；直连 GitHub 优先，失败自动切镜像，大文件支持断点续传 | — |
 | PowerShell 7 | 提供命令名级智能补全；脚本自动安装（免管理员） | `pwsh -v` |
 
 ---
@@ -74,7 +74,7 @@ tabby-setup\
 
 > **痛点**：上面的组件大多托管在 GitHub，国内直连下载经常很慢甚至卡死。
 >
-> **方案**：在**网络好的机器**上先跑一次 `prefetch.cmd`，把所有安装包下好放进本目录 `cache\`；之后**整个文件夹**（含 `cache\`）拷到任意新设备，运行 `install.cmd` 即**离线秒装**，完全不用碰 GitHub。若没有 `cache\`，`install.cmd` 也会**自动在线下载**（镜像优先）并在**同一个窗口实时显示进度**——全程一键，只有「版本选择 / 主题选择」这类需要你决定的地方才会停下来询问。
+> **方案**：在**网络好的机器**上先跑一次 `prefetch.cmd`，把所有安装包下好放进本目录 `cache\`；之后**整个文件夹**（含 `cache\`）拷到任意新设备，运行 `install.cmd` 即**离线秒装**，完全不用碰 GitHub。若没有 `cache\`，`install.cmd` 也会**自动在线下载**（直连优先、失败自动切镜像）并在**同一个窗口实时显示进度**——全程一键，只有「版本选择 / 主题选择」这类需要你决定的地方才会停下来询问。
 
 ### 1. 准备离线包（网好时执行一次）
 
@@ -158,7 +158,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Online -Yes
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Ours
 ```
 
-> 即使没有先准备离线包，`install.ps1` 也能照常在线安装（镜像优先，进度实时显示）；并且**在线下载下来的文件会自动存入 `cache\`，下次即可离线**。
+> 即使没有先准备离线包，`install.ps1` 也能照常在线安装（直连优先、失败自动切镜像，进度实时显示）；并且**在线下载下来的文件会自动存入 `cache\`，下次即可离线**。
 
 ---
 
@@ -167,8 +167,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Ours
 > **回退机制（winget 不可用时）**：
 > - **Tabby**：winget → 失败则从 GitHub Releases 下载 `tabby-*-setup-x64.exe` 并静默安装（`/S`）
 > - **Node.js**：winget → 失败则从 nodejs.org 下载免管理员 zip 版，解压到 `%LOCALAPPDATA%\Programs\nodejs` 并加入 PATH
-> - **字体**：GitHub 官方源 → 失败则用国内镜像（`ghfast.top` / `gh-proxy.com`）
-> - **PowerShell 7**：winget（限时 5 分钟）→ 超时/失败则用 `ghfast.top` 镜像下载 `.msixbundle`，`Add-AppxPackage` 用户级安装（免管理员）
+> - **字体**：GitHub 官方源 → 失败则用镜像（`gh-proxy.com`）
+> - **PowerShell 7**：winget（限时 5 分钟）→ 超时/失败则用 `gh-proxy.com` 镜像下载 `.msixbundle`，`Add-AppxPackage` 用户级安装（免管理员）
+> - **断点续传**：下载中途断开后重试会从已下载位置继续（服务器支持 Range 时生效）；所有镜像都失败时会给出明确汇总
 
 ---
 
@@ -308,7 +309,7 @@ winget install --id Eugeny.Tabby --accept-package-agreements --accept-source-agr
 ### 3. 安装字体 JetBrainsMono Nerd Font
 1. 下载字体包（任选其一）：
    - 官方：`https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip`
-   - 镜像：`https://ghfast.top/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip`
+   - 镜像：`https://gh-proxy.com/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip`
 2. 解压，取 `JetBrainsMonoNerdFontMono-*.ttf`（**Mono** 版本，严格等宽）
 3. 复制到 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`
 4. 注册到用户字体（免管理员）：
