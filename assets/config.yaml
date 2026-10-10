@@ -149,29 +149,6 @@ qc:
         - name: 日志过滤关键字
           text: adb logcat -v time | Select-String "关键字"
           appendCR: true
-    - name: Robot 测试
-      cmds:
-        - name: 进入项目目录
-          text: Set-Location D:\path\to\your\project
-          appendCR: true
-        - name: 运行蓝牙开关测试
-          text: >-
-            Set-Location D:\path\to\your\project; robot -d results
-            RF/suites/bluetooth/bt_switch_settings.robot
-          appendCR: true
-        - name: 运行 WiFi 开关测试
-          text: >-
-            Set-Location D:\path\to\your\project; robot -d results
-            RF/suites/wifi/wifi_switch.robot
-          appendCR: true
-        - name: 运行蓝牙配对压力
-          text: >-
-            Set-Location D:\path\to\your\project; robot -d results
-            RF/suites/bluetooth/bt_pair_stress.robot
-          appendCR: true
-        - name: 打开测试报告
-          text: Invoke-Item D:\path\to\your\project\results\report.html
-          appendCR: true
     - name: Git
       cmds:
         - name: 查看状态
