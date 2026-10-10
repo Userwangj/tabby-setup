@@ -784,7 +784,7 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
 
     $curatedList = @()
     foreach ($k in $OmpCurated.Keys) { if (Test-Path (Join-Path $ThemesDir ($k + '.omp.json'))) { $curatedList += $k } }
-    $allList = @(Get-ChildItem $ThemesDir -Filter *.omp.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.BaseName })
+    $allList = @(Get-ChildItem $ThemesDir -Filter *.omp.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.Name -replace '\.omp\.json$', '' })
     $mode = 'curated'; $list = $curatedList
     if ($list.Count -eq 0) { $mode = 'all'; $list = $allList }
     if ($list.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }

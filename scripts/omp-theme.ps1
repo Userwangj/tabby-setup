@@ -113,7 +113,8 @@ function Get-CuratedList {
     return $l
 }
 function Get-AllList {
-    return @(Get-ChildItem $ThemesDir -Filter *.omp.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.BaseName })
+    # 注意：BaseName 只去掉 .json，会留下 .omp（如 1_shell.omp）→ 必须整体去掉 .omp.json
+    return @(Get-ChildItem $ThemesDir -Filter *.omp.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.Name -replace '\.omp\.json$', '' })
 }
 
 # 渲染一屏：标题 + 主题名/说明 + 真实预览（裸调用）+ 快捷键提示
