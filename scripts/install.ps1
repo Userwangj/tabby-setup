@@ -133,15 +133,25 @@ function Get-InstallPrePlan {
     return $plan
 }
 function Invoke-PreDownloads {
+    param([hashtable]$Preference)
     $plan = Get-InstallPrePlan
     $installerKeys = @('tabby', 'font', 'pwsh', 'omp', 'node')
     $download = @()
+    $updateKeys = @()     # 版本检查里选“在线更新有更新的组件”→ 即使已有旧缓存也重下最新
+    $missingKeys = @()    # 本机/缓存都缺、需补齐的组件
     foreach ($r in $plan) {
+        $isInstaller = ($installerKeys -contains $r.Key)
+        $wantLatest = $isInstaller -and $Preference -and $Preference.ContainsKey($r.Key) -and $Preference[$r.Key] -eq 'latest'
+        if ($wantLatest) {
+            if ($download -notcontains $r.Key) { $download += $r.Key }
+            $updateKeys += $r.Key
+            continue
+        }
         if ($r.Cached) { continue }
-        if (($installerKeys -contains $r.Key) -and (-not $r.Present)) { $download += $r.Key }
+        if ($isInstaller -and (-not $r.Present)) { $download += $r.Key; $missingKeys += $r.Key }
     }
-    # 模块 / npm 插件：仅在本次确实要安装组件时顺带预取（npm 需本机已有 npm.cmd）
-    if ($download.Count -gt 0) {
+    # 模块 / npm 插件：仅在本次确实要补装组件时顺带预取（npm 需本机已有 npm.cmd）
+    if ($missingKeys.Count -gt 0) {
         $modCached = [bool]((Get-CachedModuleVersion $CacheDir 'PSReadLine') -or (Get-CachedModuleVersion $CacheDir 'CompletionPredictor'))
         $npmCached = (Test-Path (Join-Path $CacheDir 'npm\node_modules.zip')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules'))
         if (-not $modCached) { $download += 'modules' }
@@ -157,7 +167,8 @@ function Invoke-PreDownloads {
     foreach ($r in $plan) {
         $st = if ($installerKeys -contains $r.Key) { if ($r.Present) { '已安装' } else { '未安装' } } else { '—' }
         $cf = if ($r.Cached) { '有' } else { '无' }
-        if ($r.Cached) { $act = '用离线包' }
+        if ($updateKeys -contains $r.Key) { $act = '在线更新' }
+        elseif ($r.Cached) { $act = '用离线包' }
         elseif ($download -contains $r.Key) { $act = '预下载' }
         elseif ($r.Present) { $act = '稍后询问' }
         else { $act = '跳过' }
@@ -168,11 +179,30 @@ function Invoke-PreDownloads {
     if (-not (Test-Network)) { Warn '  [预下载] 未检测到网络，跳过批量预下载，将按需在线获取。'; return }
 
     # -FromRelease：优先从 GitHub Release 拉取整份缓存包（走镜像、可续传）
-    if ($PreferRelease) {
+    # 但若用户要求“在线更新有更新的组件”，Release 整包是发布时的旧快照，不能用于更新，须逐项取最新。
+    if ($PreferRelease -and $updateKeys.Count -eq 0) {
         Info '  [FromRelease] 从 GitHub Release 拉取完整缓存包 ...'
         if (Get-CacheBundleFromRelease -CacheDir $CacheDir) { Ok '  缓存包已就绪（已解压到 cache\）。'; return }
         Warn '  未获取到缓存包（可能尚未发布），回退为逐项预下载。'
         if ($download.Count -eq 0) { return }
+    }
+
+    # 版本检查里选了“在线更新有更新的组件”：立即联网取最新到本地缓存，不再二次询问
+    if ($updateKeys.Count -gt 0) {
+        $mBefore = Get-CacheManifest $CacheDir
+        $verBefore = @{}
+        foreach ($k in $updateKeys) { $verBefore[$k] = if ($mBefore -and $mBefore.PSObject.Properties.Name -contains $k) { [string]$mBefore.$k.version } else { '' } }
+        Info ("  [在线更新] 立即下载到 cache\：" + ($download -join ', ') + ' ...')
+        $pfScript = Join-Path $ScriptDir 'prefetch.ps1'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $pfScript -Only ($download -join ',')
+        Info ''
+        # 下载成功的组件：偏好由 latest 改为 cache（安装时直接用刚下好的最新缓存，避免重复下载）
+        $mAfter = Get-CacheManifest $CacheDir
+        foreach ($k in $updateKeys) {
+            $after = if ($mAfter -and $mAfter.PSObject.Properties.Name -contains $k) { [string]$mAfter.$k.version } else { '' }
+            if ($after -and (Ver-Newer $after $verBefore[$k])) { $Preference[$k] = 'cache' }
+        }
+        return
     }
 
     # 是否“首次安装”（本地没有任何可用离线包）——首次时优先整包同步，最省事
@@ -385,7 +415,7 @@ if ($pref -and $pref.ContainsKey('__cancel')) { Warn '安装已结束（见上�
 if ($RunMode -eq 'cache' -and -not (Test-Path $CacheDir)) { Warn '  [离线模式] 未发现 cache\，需要下载的组件将被跳过。请先运行 prefetch.cmd。' }
 
 # --- 预下载阶段：默认(ask)模式下，先把“缺失且本机没有”的组件一次性连续下载好 ---
-if ($RunMode -eq 'ask') { Invoke-PreDownloads }
+if ($RunMode -eq 'ask') { Invoke-PreDownloads -Preference $pref }
 
 # --- 1/9. Install Tabby if missing (cache -> direct download -> winget) ---
 Info '[1/9] Tabby terminal'
