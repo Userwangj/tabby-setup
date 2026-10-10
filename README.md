@@ -39,7 +39,7 @@ tabby-setup\
 | `tabbyhelp.cmd` / `tabbyhelp.txt` | `tabbyhelp` 命令：功能清单（GBK，安装时注入真实路径） |
 | `tabbycolors.cmd` / `show-theme.ps1` | `tabbycolors` 命令：显示当前主题名 + 16 色调色板 + 背景色 |
 | `tabbytheme.cmd` / `switch-theme.ps1` | `tabbytheme` 命令：切换 Tabby **终端配色**（8 霓虹主题 + 霓虹发光 CSS + 自动重启） |
-| `omp.cmd` / `omp-theme.ps1` | `omp` 命令：切换 oh-my-posh **提示符主题**（16 精选 + 全部 122，真彩色预览） |
+| `omp.cmd` / `omp-theme.ps1` | `omp` 命令：切换 oh-my-posh **提示符主题**（单键 `n`/`p` 实时预览，精选 16 + 全部 122） |
 | `Microsoft.PowerShell_profile.ps1` | PowerShell profile 模板：启动时加载 oh-my-posh 提示符 |
 
 ### `assets\`（配置模板 / 依赖清单）
@@ -302,29 +302,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Theme "Cyberpunk
 终端里 `PS C:\Users>` 默认是**纯文本**（只显示终端前景色）。安装脚本会额外用 **oh-my-posh** 把提示符换成彩色分段（图标 / git 分支 / 路径 / 执行时间）：
 
 - 安装时自动 `winget install JanDeDobbeleer.OhMyPosh`
-- 安装时会像配色主题一样**交互选择提示符主题**（精选 16 个，带真彩色实时预览）；也可用 `-OmpTheme paradox` 预设跳过提问；非交互 / `-Yes` 时默认 **`atomic`**
+- 安装时会像配色主题一样**交互选择提示符主题**（精选 16 个，**单键 `n`/`p` 实时预览**，也可 `a` 切到全部主题）；还可 `-OmpTheme paradox` 预设跳过提问；非交互 / `-Yes` 时默认 **`atomic`**
 - 选定主题写入 `%USERPROFILE%\bin\oh-my-posh.omp.json`（默认 **`atomic`**：现代两行、圆角 Powerline、图标 + git + 右侧时钟），并在 `oh-my-posh.theme.txt` 记录主题名
 - PowerShell profile 部署到 `Documents\WindowsPowerShell\` 与 `Documents\PowerShell\`；若已有自定义 profile，则**追加**一个代码块而不覆盖
 - **打开新的 Tabby 标签页 / 重开 Tabby** 即可看到新提示符（profile 在 PowerShell 启动时加载）
 
-> **安装预览说明**：安装时的主题选择与 `omp` 命令**完全一致**——先列出编号菜单，输入编号即**预览该主题**，再 `y/n` 确认（`n` 可回去重选，可循环）。预览**直接用 oh-my-posh 渲染、不捕获输出**，所以能探测到真实控制台宽度、**右对齐与 `omp` 里一模一样**（不再有错位/换行）。预览里的**图标是 Nerd Font 私有字形**，普通控制台字体会显示为空白——想在安装时就看清完整图标，请**在 Tabby 里运行 `install.cmd`**（Tabby 已用 JetBrainsMono Nerd Font）；安装完成后在 Tabby 里用 `omp` 选择器可看到**真实终端里的完整效果**。
+> **安装预览说明**：安装时的主题选择与 `omp` 命令**完全一样**——单键 `n`/`p`（或 `↑`/`↓`）即时预览上/下一个主题，`Enter` 应用，`a` 切换「精选 16 / 全部主题」，`q` 退出；输出被重定向时退化为「输入编号」。预览**直接用 oh-my-posh 渲染、不捕获输出**，所以能探测到真实控制台宽度、**右对齐与 `omp` 里一模一样**（不再有错位/换行）。预览里的**图标是 Nerd Font 私有字形**，普通控制台字体会显示为空白——想在安装时就看清完整图标，请**在 Tabby 里运行 `install.cmd`**（Tabby 已用 JetBrainsMono Nerd Font）；安装完成后在 Tabby 里用 `omp` 选择器可看到**真实终端里的完整效果**。
 
 ##### 安装后随时换主题：`omp` 选择器
 
-在 Tabby 里运行 `omp`，会列出精选的炫酷主题，并**在真实终端里用真彩色渲染预览**，输入编号后在 `[y/n]` 确认处**显式输入 `y`** 才应用（直接回车不会应用）：
+在 Tabby 里运行 `omp`，进入**单键实时预览**界面（做法参考开源项目 poshpicker / oh-my-theme）：
 
 ```
-   1) atomic                现代两行 · 图标+git · 简约炫  *当前
-   2) jandedobbeleer        经典彩色分段 · 默认风
-   3) powerlevel10k_rainbow 彩虹分段 · 最炫
-   4) paradox               粗体 Powerline · 硬核
-   5) aliens                太空异形风
-   ...
-   L) 列出全部主题并预览    Q) 退出
+  ===== oh-my-posh 主题选择  [精选 16]  1/16 =====
+   atomic   现代两行 · 图标+git · 简约炫  *当前
+
+  <此处是真实终端里的真彩色提示符预览>
+
+  n/↓ 下一个    p/↑ 上一个    Enter 应用    a 全部/精选    q 退出
 ```
 
-- `L` 可列出内置的**全部主题**（122 个），输入名字即可预览
-- 应用后会写入 `%USERPROFILE%\bin\oh-my-posh.omp.json`，并在 `oh-my-posh.theme.txt` 记录当前主题名（`omp` 里显示 `*当前`）
+- `n`/`↓`（或 `j`）下一个、`p`/`↑`（或 `k`）上一个，**即时预览**下一个主题；`Home`/`End` 跳到首/尾
+- `a` 在「精选 16」与「全部主题（本机 122 个）」之间切换
+- `Enter` 应用当前主题；`q` / `Esc` 退出（不做更改）
+- 应用后写入 `%USERPROFILE%\bin\oh-my-posh.omp.json`，并在 `oh-my-posh.theme.txt` 记录当前主题名（界面里显示 `*当前`）
 - 重开标签页生效
 
 内置主题位于 oh-my-posh 安装目录的 `themes\` 下（Store 版为 `C:\Program Files\WindowsApps\ohmyposh.cli_*\themes`）。也可以手动把任意 `.omp.json` 覆盖到 `%USERPROFILE%\bin\oh-my-posh.omp.json`。
@@ -480,7 +481,7 @@ npm.cmd install --no-audit --no-fund
 - **tabbyhelp**：在任意 Tabby 终端输入 `tabbyhelp`，列出全部已配置功能与用法
 - **tabbycolors**：查看当前 Tabby 配色是否生效（主题名 + 16 色调色板）
 - **tabbytheme**：随时切换 Tabby 终端配色（8 个霓虹主题，真彩色预览，自动重启）
-- **omp**：切换 oh-my-posh 提示符主题（16 精选 + 全部 122）
+- **omp**：切换 oh-my-posh 提示符主题（单键 `n`/`p` 实时预览，精选 16 + 全部 122）
 
 ---
 

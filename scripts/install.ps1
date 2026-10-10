@@ -704,15 +704,46 @@ function Limit-PreviewWidth([string]$Text, [int]$MaxVisible) {
     }
     return ($sb.ToString() + $e + '[0m')
 }
-# 用【裸调用】渲染主题预览：不捕获输出，oh-my-posh 才能探测到真实控制台宽度 → 右对齐正确，
-# 与 omp 命令完全一致（图标仍需 Nerd Font 字体）。
-function Show-OmpPreview([string]$OmpExe, [string]$Name, [string]$ThemesDir) {
-    $f = Join-Path $ThemesDir ($Name + '.omp.json')
-    if (-not (Test-Path $f)) { return }
+# 纯函数：把一次按键映射为动作（便于单测）。
+# 返回 'next' | 'prev' | 'first' | 'last' | 'apply' | 'quit' | 'toggle' | 'none'
+function Resolve-ThemeKey {
+    param([System.ConsoleKey]$Key, [char]$KeyChar)
+    if ($Key -eq [System.ConsoleKey]::Enter)  { return 'apply' }
+    if ($Key -eq [System.ConsoleKey]::Escape) { return 'quit' }
+    if ($Key -eq [System.ConsoleKey]::UpArrow -or $Key -eq [System.ConsoleKey]::LeftArrow)    { return 'prev' }
+    if ($Key -eq [System.ConsoleKey]::DownArrow -or $Key -eq [System.ConsoleKey]::RightArrow) { return 'next' }
+    if ($Key -eq [System.ConsoleKey]::Home) { return 'first' }
+    if ($Key -eq [System.ConsoleKey]::End)  { return 'last' }
+    $ch = ''
+    if ([int]$KeyChar -ne 0) { $ch = ([string]$KeyChar).ToLowerInvariant() }
+    if ($ch -eq 'n' -or $ch -eq 'j') { return 'next' }
+    if ($ch -eq 'p' -or $ch -eq 'k') { return 'prev' }
+    if ($ch -eq 'q') { return 'quit' }
+    if ($ch -eq 'a') { return 'toggle' }
+    return 'none'
+}
+
+# 渲染一屏主题选择界面（标题 + 名称/说明 + 真实预览 + 快捷键）。
+# 预览用【裸调用】（不捕获），oh-my-posh 才能探测真实控制台宽度、右对齐正确（同 omp 命令）；
+# 输出被重定向时退回“捕获 + 清理 + 按宽截断”，保证不换行。
+function Show-ThemeScreen {
+    param($List, [int]$Idx, [string]$Mode, [string]$Cur, [string]$OmpExe, [string]$ThemesDir, $Curated)
+    try { Clear-Host } catch { }
+    $n = [int]$List.Count
+    if ($n -eq 0) { return }
+    $name = [string]$List[$Idx]
+    $desc = ''
+    if ($Curated -and $Curated.Contains($name)) { $desc = [string]$Curated[$name] }
+    $modeTxt = '精选 ' + $n
+    if ($Mode -eq 'all') { $modeTxt = '全部 ' + $n }
+    $star = ''
+    if ($name -eq $Cur) { $star = '   *当前' }
     Write-Host ''
-    Write-Host ('  ── 预览: ' + $Name + ' ──') -ForegroundColor DarkGray
+    Write-Host ('  ===== oh-my-posh 提示符主题  [' + $modeTxt + ']  ' + ($Idx + 1) + '/' + $n + ' =====') -ForegroundColor Cyan
+    Write-Host ('   ' + $name + '   ' + $desc + $star) -ForegroundColor White
     Write-Host ''
-    if ($OmpExe) {
+    $f = Join-Path $ThemesDir ($name + '.omp.json')
+    if ($OmpExe -and (Test-Path $f)) {
         $redirected = $true
         try { $redirected = [Console]::IsOutputRedirected } catch { }
         if (-not $redirected) {
@@ -736,9 +767,12 @@ function Show-OmpPreview([string]$OmpExe, [string]$Name, [string]$ThemesDir) {
         }
     }
     Write-Host ''
+    Write-Host '  n/↓ 下一个    p/↑ 上一个    Enter 应用    a 全部/精选    q 退出' -ForegroundColor DarkGray
+    Write-Host '  提示：图标需 Nerd Font 字体；在 Tabby 里运行可见完整效果。' -ForegroundColor DarkGray
 }
 
-# 安装时选择 oh-my-posh 提示符主题：交互与 omp 命令一致（菜单 → 预览一个 → y/n 确认 → 可循环）。
+# 安装时选择 oh-my-posh 提示符主题：参考 poshpicker / oh-my-theme，
+# 单键 n/p（或 ↑/↓）实时预览，Enter 应用，a 切换 全部/精选，q 退出；输出被重定向时退化为“输入编号”。
 function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     if (-not $ThemesDir) { Warn '       未找到 oh-my-posh 主题目录，保持默认 atomic'; return }
     if ($OmpTheme) {
@@ -748,43 +782,62 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     }
     if ($AutoYes) { return }   # 非交互：保持默认 atomic
 
-    $map = @()
-    foreach ($k in $OmpCurated.Keys) {
-        if (Test-Path (Join-Path $ThemesDir ($k + '.omp.json'))) { $map += $k }
-    }
-    if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
+    $curatedList = @()
+    foreach ($k in $OmpCurated.Keys) { if (Test-Path (Join-Path $ThemesDir ($k + '.omp.json'))) { $curatedList += $k } }
+    $allList = @(Get-ChildItem $ThemesDir -Filter *.omp.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.BaseName })
+    $mode = 'curated'; $list = $curatedList
+    if ($list.Count -eq 0) { $mode = 'all'; $list = $allList }
+    if ($list.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
 
     $cur = 'atomic'
     try { $tf = Join-Path $BinDir 'oh-my-posh.theme.txt'; if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $cur = $t } } } catch { }
+    $idx = 0
+    for ($i = 0; $i -lt $list.Count; $i++) { if ($list[$i] -eq $cur) { $idx = $i; break } }
 
     # 预览需临时把控制台切 UTF-8（PS 5.1 默认按 GBK 解码原生命令输出会乱码），结束恢复
     $prevOutEnc = [Console]::OutputEncoding
     try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
     try {
-        Write-Host ''
-        Write-Host '  ========== oh-my-posh 提示符主题 ==========' -ForegroundColor Cyan
-        while ($true) {
-            Write-Host ''
-            for ($j = 0; $j -lt $map.Count; $j++) {
-                $star = ''
-                if ($map[$j] -eq $cur) { $star = '   *当前' }
-                Write-Host ("    [{0,2}] {1,-22} {2}{3}" -f ($j + 1), $map[$j], $OmpCurated[$map[$j]], $star) -ForegroundColor White
+        $interactive = $false
+        try { $interactive = -not ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) } catch { }
+        if ($interactive) {
+            while ($true) {
+                Show-ThemeScreen -List $list -Idx $idx -Mode $mode -Cur $cur -OmpExe $OmpExe -ThemesDir $ThemesDir -Curated $OmpCurated
+                $key = [Console]::ReadKey($true)
+                $done = $false
+                switch (Resolve-ThemeKey -Key $key.Key -KeyChar $key.KeyChar) {
+                    'apply' {
+                        if (Apply-OmpTheme $list[$idx] $ThemesDir) { Ok ("       omp 主题: " + $list[$idx]) }
+                        else { Warn ("       应用失败: " + $list[$idx] + '，保持默认 atomic') }
+                        $done = $true
+                    }
+                    'quit'  { $done = $true }
+                    'prev'  { $idx-- }
+                    'next'  { $idx++ }
+                    'first' { $idx = 0 }
+                    'last'  { $idx = $list.Count - 1 }
+                    'toggle' {
+                        if ($mode -eq 'all') { $mode = 'curated'; $list = $curatedList } else { $mode = 'all'; $list = $allList }
+                        if ($list.Count -eq 0) { $mode = 'all'; $list = $allList }
+                        $idx = 0
+                    }
+                }
+                if ($done) { break }
+                if ($list.Count -gt 0) {
+                    if ($idx -lt 0) { $idx = $list.Count - 1 }
+                    if ($idx -ge $list.Count) { $idx = 0 }
+                }
             }
+        } else {
+            # 非交互：编号列表 + Read-Choice
             Write-Host ''
-            Write-Host '    输入编号即预览（回车不会选择）；q 使用当前/默认主题。' -ForegroundColor DarkGray
-            Write-Host '    提示：预览里的图标需要 Nerd Font 字体；在 Tabby 里运行可看完整效果。' -ForegroundColor DarkGray
-            $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
-            $allowed += 'q'
-            $ans = Read-Choice -Prompt ("  选择 omp 主题 1-$($map.Count) / q") -Allowed $allowed -DefaultOnFail '1'
-            if ($ans -eq 'q') { return }
-            $name = $map[[int]$ans - 1]
-            Show-OmpPreview $OmpExe $name $ThemesDir
-            $yn = Read-Choice -Prompt ("  应用主题 $name ? [y/n]（n 重新选择）") -Allowed @('y', 'n') -DefaultOnFail 'y'
-            if ($yn -eq 'y') {
-                if (Apply-OmpTheme $name $ThemesDir) { Ok ("       omp 主题: $name") }
-                else { Warn ("       应用失败: $name，保持默认 atomic") }
-                return
-            }
+            Write-Host '  ===== oh-my-posh 提示符主题（非交互：输入编号）=====' -ForegroundColor Cyan
+            for ($j = 0; $j -lt $list.Count; $j++) { Write-Host ("    [{0,2}] {1}" -f ($j + 1), $list[$j]) -ForegroundColor White }
+            $allowed = @(); for ($j = 1; $j -le $list.Count; $j++) { $allowed += [string]$j }
+            $ans = Read-Choice -Prompt ("  选择 omp 主题 1-" + $list.Count) -Allowed $allowed -DefaultOnFail '1'
+            $name = $list[[int]$ans - 1]
+            if (Apply-OmpTheme $name $ThemesDir) { Ok ("       omp 主题: $name") }
+            else { Warn ("       应用失败: $name，保持默认 atomic") }
         }
     } finally { try { [Console]::OutputEncoding = $prevOutEnc } catch { } }
 }
