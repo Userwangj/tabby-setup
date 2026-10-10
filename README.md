@@ -400,7 +400,7 @@ npm.cmd install --no-audit --no-fund
 | **Python 环境** | 版本检查 / 安装项目依赖 |
 | **帮助** | 显示功能清单（`tabbyhelp`） |
 
-> 路径基于项目 `D:\autoTest\24MMAutoST`，其他设备如路径不同请按需修改。
+> 上述命令中的项目路径为示例（`D:\path\to\your\project`），请按你自己的项目目录修改后再使用。
 
 ---
 

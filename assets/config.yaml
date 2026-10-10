@@ -152,25 +152,25 @@ qc:
     - name: Robot 测试
       cmds:
         - name: 进入项目目录
-          text: Set-Location D:\autoTest\24MMAutoST
+          text: Set-Location D:\path\to\your\project
           appendCR: true
         - name: 运行蓝牙开关测试
           text: >-
-            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            Set-Location D:\path\to\your\project; robot -d results
             RF/suites/bluetooth/bt_switch_settings.robot
           appendCR: true
         - name: 运行 WiFi 开关测试
           text: >-
-            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            Set-Location D:\path\to\your\project; robot -d results
             RF/suites/wifi/wifi_switch.robot
           appendCR: true
         - name: 运行蓝牙配对压力
           text: >-
-            Set-Location D:\autoTest\24MMAutoST; robot -d results
+            Set-Location D:\path\to\your\project; robot -d results
             RF/suites/bluetooth/bt_pair_stress.robot
           appendCR: true
         - name: 打开测试报告
-          text: Invoke-Item D:\autoTest\24MMAutoST\results\report.html
+          text: Invoke-Item D:\path\to\your\project\results\report.html
           appendCR: true
     - name: Git
       cmds:
@@ -192,7 +192,7 @@ qc:
           text: python --version; pip --version
           appendCR: true
         - name: 安装项目依赖
-          text: Set-Location D:\autoTest\24MMAutoST; pip install -r requirements.txt
+          text: Set-Location D:\path\to\your\project; pip install -r requirements.txt
           appendCR: true
     - name: 帮助
       cmds:
