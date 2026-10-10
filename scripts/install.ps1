@@ -737,6 +737,7 @@ if ($omp) {
     elseif (-not $AutoYes) { $installOwnOmp = ((Select-ExistingAction 'oh-my-posh' $omp) -eq 'ours') }
 }
 $useOwnOmp = (-not $ompPreexisting) -or $installOwnOmp
+$deployOmpTheme = $useOwnOmp   # 是否部署本包 omp 主题/选择器/配置（保留本机版本时后面会再询问）
 if (-not $omp -or $installOwnOmp) {
     $src = Resolve-Source -Key 'omp' -CacheDir $CacheDir -Preference $pref -Mode $RunMode
     if ($src -eq 'cache' -or $src -eq 'online') {
@@ -807,9 +808,25 @@ if (-not $omp -or $installOwnOmp) {
 }
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 
-# 只有“使用本程序版本”时才部署本包的 omp 主题/主题选择器（否则完全不碰本机 omp 配置）
-if ($useOwnOmp) {
-    Copy-Item (Join-Path $AssetsDir 'oh-my-posh.omp.json') (Join-Path $BinDir 'oh-my-posh.omp.json') -Force
+# 部署本包 omp 主题/选择器/配置的门控：
+#  - “用本程序版本”($useOwnOmp)：一定部署；
+#  - “保留本机版本”：先问是否仍要配置提示符主题，选“是”才部署（并写 profile 让新主题生效），
+#    选“否”则完全不碰（保持 [1] 原语义：不部署本包主题/选择器）。
+if (-not $deployOmpTheme -and $omp -and -not $AutoYes) {
+    Write-Host ''
+    Warn  "  保留本机 oh-my-posh 版本：$omp"
+    Write-Host '    是否仍要为本机 oh-my-posh 选择「提示符主题」？' -ForegroundColor White
+    Write-Host '    [1] 是：部署本包提示符主题/选择器，并写入 PowerShell profile 让新主题生效' -ForegroundColor White
+    Write-Host '    [2] 否：完全不改动（保持现状）' -ForegroundColor White
+    $askTheme = Read-Choice -Prompt '  选择 1 / 2' -Allowed @('1', '2') -DefaultOnFail '2'
+    if ($askTheme -eq '1') { $deployOmpTheme = $true; Ok '       将为本机 oh-my-posh 部署提示符主题/选择器' }
+}
+if ($deployOmpTheme) {
+    # 保留本机版本且已有自定义主题配置时不覆盖它（只有“本程序版本”或首次没有时才放默认）
+    $ompCfg = Join-Path $BinDir 'oh-my-posh.omp.json'
+    if ($useOwnOmp -or -not (Test-Path $ompCfg)) {
+        Copy-Item (Join-Path $AssetsDir 'oh-my-posh.omp.json') $ompCfg -Force
+    }
     # deploy the oh-my-posh theme picker (omp command) + remember default theme name
     foreach ($hf in @('omp.cmd', 'omp-theme.ps1')) {
         if (Test-Path (Join-Path $ScriptDir $hf)) {
@@ -826,13 +843,13 @@ if ($useOwnOmp) {
 }
 
 # PowerShell profile：只写入本包“确实要用”的块，并保留你原有的内容（仅剥离本包旧块）
-if ($useOwnOmp -or $useOwnPwsh) {
+if ($deployOmpTheme -or $useOwnPwsh) {
     $templateText = [System.IO.File]::ReadAllText((Join-Path $ScriptDir 'Microsoft.PowerShell_profile.ps1'), [Text.Encoding]::UTF8)
     $ompBlock = ''; $prlBlock = ''
     if ($templateText -match '(?s)(# ==== oh-my-posh prompt.*?# ==== end oh-my-posh ====)') { $ompBlock = $Matches[1] }
     if ($templateText -match '(?s)(# ==== PSReadLine.*?# ==== end PSReadLine ====)')       { $prlBlock = $Matches[1] }
     $desiredList = @()
-    if ($useOwnOmp)  { $desiredList += $ompBlock }
+    if ($deployOmpTheme) { $desiredList += $ompBlock }
     if ($useOwnPwsh) { $desiredList += $prlBlock }
     $desiredText = ($desiredList -join "`r`n")
     $utf8bom = New-Object System.Text.UTF8Encoding($true)
@@ -855,7 +872,7 @@ if ($useOwnOmp -or $useOwnPwsh) {
     Warn '       保留本机 pwsh 与 oh-my-posh：未改动 PowerShell profile'
 }
 
-if ($useOwnOmp) { Ok '       oh-my-posh prompt deployed - run "omp" to browse cool themes (default: atomic)' }
+if ($deployOmpTheme) { Ok '       oh-my-posh prompt deployed - run "omp" to browse cool themes' }
 elseif ($omp)   { Warn '       保留本机 oh-my-posh（未部署本包提示符配置）' }
 else            { Warn '       oh-my-posh not installed - prompt NOT enabled. Install it then re-run.' }
 
