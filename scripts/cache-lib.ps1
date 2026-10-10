@@ -680,11 +680,13 @@ function Get-GitHubMirrors {
 }
 function Get-GitHubApiMirrors {
     param([Parameter(Mandatory)][string]$ApiUrl)
-    return @(
-        $ApiUrl,
+    $mirrors = @(
         "https://gh-proxy.com/$ApiUrl",
         "https://ghproxy.net/$ApiUrl"
     )
+    # Test-Network 判定直连不可用时跳过直连，避免为每个组件白等一次超时
+    if ($script:GitHubDirectOk -eq $false) { return $mirrors }
+    return @($ApiUrl) + $mirrors
 }
 
 # ---- manifest ----
@@ -775,11 +777,101 @@ function Ver-Newer([string]$latest, [string]$cached) {
 function Get-LatestGitHubTag([string]$repo) {
     foreach ($api in (Get-GitHubApiMirrors "https://api.github.com/repos/$repo/releases/latest")) {
         try {
-            $r = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 12
+            $r = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec 7
             if ($r.tag_name) { return [string]$r.tag_name }
         } catch { }
     }
     return $null
+}
+
+# ---- 并行查询多个组件的最新版（runspace）----
+# 原先 Invoke-VersionCheck 串行逐个联网查（Test-Network + 4×GitHub + node + 2×PSGallery），
+# 单项超时叠加可长达数分钟且全程无输出。改为并行 + 实时转圈：
+#   $Tasks: key -> @{ Kind='gh-tag'|'node-lts'|'psmodule'; Urls=[string[]]; Name='' }
+#   返回:  key -> 版本字符串（查不到/失败为 $null）
+#   $OnProgress: 等待期间周期调用 param($spin, $done, $total)
+function Invoke-ParallelVersionProbe {
+    param(
+        [hashtable]$Tasks,
+        [int]$TimeoutSec = 7,
+        [int]$MaxThreads = 8,
+        [scriptblock]$OnProgress = $null
+    )
+    $results = @{}
+    if (-not $Tasks -or $Tasks.Count -eq 0) { return $results }
+    foreach ($k in $Tasks.Keys) { $results[$k] = $null }
+    if ($MaxThreads -lt 2) { $MaxThreads = 2 }
+    if ($Tasks.Count -lt $MaxThreads) { $MaxThreads = $Tasks.Count }
+
+    $worker = {
+        param($kind, $urls, $name, $timeoutSec)
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+        function Get-Tag([string[]]$u, [int]$t) {
+            foreach ($x in $u) {
+                try {
+                    $r = Invoke-RestMethod -Uri $x -Headers @{ 'User-Agent' = 'tabby-setup' } -UseBasicParsing -TimeoutSec $t
+                    if ($r.tag_name) { return [string]$r.tag_name }
+                } catch { }
+            }
+            return $null
+        }
+        switch ($kind) {
+            'gh-tag' { return (Get-Tag $urls $timeoutSec) }
+            'node-lts' {
+                try {
+                    $idx = Invoke-RestMethod -Uri $urls[0] -UseBasicParsing -TimeoutSec $timeoutSec
+                    $lts = $idx | Where-Object { $_.lts } | Select-Object -First 1
+                    if ($lts) { return [string]$lts.version }
+                } catch { }
+                return $null
+            }
+            'psmodule' {
+                try { return [string](Find-Module -Name $name -ErrorAction Stop).Version } catch { return $null }
+            }
+        }
+        return $null
+    }
+
+    $pool = $null; $psList = @()
+    try {
+        $pool = [runspacefactory]::CreateRunspacePool(1, $MaxThreads)
+        $pool.Open()
+        foreach ($k in $Tasks.Keys) {
+            $t = $Tasks[$k]
+            $p = [powershell]::Create()
+            $p.RunspacePool = $pool
+            [void]$p.AddScript($worker).AddArgument($t.Kind).AddArgument([string[]]$t.Urls).AddArgument([string]$t.Name).AddArgument($TimeoutSec)
+            $h = $p.BeginInvoke()
+            $psList += [pscustomobject]@{ Key = $k; PS = $p; Async = $h }
+        }
+        $deadline = (Get-Date).AddSeconds($TimeoutSec * 3 + 10)
+        $spin = @('|', '/', '-', '\'); $si = 0
+        $pending = @($psList)
+        while ($pending.Count -gt 0 -and (Get-Date) -lt $deadline) {
+            $still = @()
+            foreach ($item in $pending) {
+                $st = $item.PS.InvocationStateInfo.State
+                if ($st -eq 'Completed') {
+                    try { $results[$item.Key] = ($item.PS.EndInvoke($item.Async) | Select-Object -Last 1) } catch { $results[$item.Key] = $null }
+                } elseif ($st -eq 'Failed' -or $st -eq 'Stopped') {
+                    $results[$item.Key] = $null
+                } else { $still += $item }
+            }
+            $pending = $still
+            if ($pending.Count -gt 0) {
+                if ($OnProgress) { & $OnProgress $spin[$si % 4] ($psList.Count - $pending.Count) $psList.Count }
+                $si++
+                Start-Sleep -Milliseconds 150
+            }
+        }
+        foreach ($item in $pending) { $results[$item.Key] = $null }   # 超时未完成的按“查不到”处理
+    } catch {
+        # 并行不可用（受限环境等）：保留全 $null，调用方显示“(未查到)”即可，不影响安装
+    } finally {
+        foreach ($item in $psList) { try { $item.PS.Dispose() } catch { } }
+        if ($pool) { try { $pool.Close() } catch { }; try { $pool.Dispose() } catch { } }
+    }
+    return $results
 }
 
 # ============================================================
@@ -857,7 +949,7 @@ function Get-CacheBundleFromRelease {
 }
 function Get-LatestNodeLts {
     try {
-        $idx = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing -TimeoutSec 12
+        $idx = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing -TimeoutSec 7
         $lts = $idx | Where-Object { $_.lts } | Select-Object -First 1
         if ($lts) { return [string]$lts.version }
     } catch { }
@@ -911,6 +1003,8 @@ function Resolve-Source {
 
 # ---- 网络连通性探测（任一可靠端点有 HTTP 响应即视为在线）----
 function Test-Network {
+    # 记录直连 GitHub 是否可用：可用则后续版本检查优先直连；不可用则跳过直连（省去每项 ~12s 超时等待）
+    $script:GitHubDirectOk = $null
     foreach ($u in @('https://api.github.com/', 'https://gh-proxy.com/')) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -921,11 +1015,16 @@ function Test-Network {
             $req.AllowAutoRedirect = $true
             $resp = $req.GetResponse()
             $resp.Close()
+            if ($u -like '*api.github.com*') { $script:GitHubDirectOk = $true } elseif ($script:GitHubDirectOk -ne $true) { $script:GitHubDirectOk = $false }
             return $true
         } catch {
-            if ($_.Exception.Response) { return $true }   # 有 HTTP 响应(如 403/404)也说明网络是通的
+            if ($_.Exception.Response) {   # 有 HTTP 响应(如 403/404)也说明该端点可达
+                if ($u -like '*api.github.com*') { $script:GitHubDirectOk = $true } elseif ($script:GitHubDirectOk -ne $true) { $script:GitHubDirectOk = $false }
+                return $true
+            }
         }
     }
+    $script:GitHubDirectOk = $false
     return $false
 }
 
@@ -947,7 +1046,15 @@ function Invoke-VersionCheck {
     if ($Mode -ne 'ask') { return @{} }
 
     $hasAnyCache = (Test-Path $CacheDir) -and (@(Get-ChildItem $CacheDir -File -ErrorAction SilentlyContinue).Count -gt 0)
+    Write-Host '  正在探测网络（直连 GitHub / 镜像）…' -NoNewline -ForegroundColor DarkGray
     $online = Test-Network
+    if ($online) {
+        $netKind = 'GitHub 镜像'
+        if ($script:GitHubDirectOk -eq $true) { $netKind = 'GitHub 直连' }
+        Write-Host "`r  网络可用（$netKind）                          " -ForegroundColor DarkGray
+    } else {
+        Write-Host "`r  未检测到网络                                    " -ForegroundColor DarkGray
+    }
 
     # ---- A. 没有离线包 ----
     if (-not $hasAnyCache) {
@@ -962,8 +1069,9 @@ function Invoke-VersionCheck {
         return @{ __cancel = $true }
     }
 
-    # ---- B/C. 有离线包：收集组件（有网才查上游最新版）并显示版本对照 ----
+    # ---- B/C. 有离线包：收集组件，并【并行】查询上游最新版（带实时转圈）----
     $rows = New-Object System.Collections.ArrayList
+    $tasks = @{}
     $comps = @(
         @{ key = 'tabby'; name = 'Tabby';                 repo = 'Eugeny/tabby' },
         @{ key = 'font';  name = 'JetBrainsMono NF';      repo = 'ryanoasis/nerd-fonts' },
@@ -976,26 +1084,35 @@ function Invoke-VersionCheck {
         if ($Manifest -and $Manifest.($c.key)) { $cached = [string]$Manifest.($c.key).version }
         $has = (Test-Path $file) -and ((Get-Item $file).Length -gt 0)
         if (-not $has -and -not $cached) { continue }
-        $latest = if ($online) { Get-LatestGitHubTag $c.repo } else { $null }
-        [void]$rows.Add(@{ key = $c.key; name = $c.name; cached = $cached; latest = $latest; has = $has })
+        [void]$rows.Add(@{ key = $c.key; name = $c.name; cached = $cached; latest = $null; has = $has })
+        if ($online) { $tasks[$c.key] = @{ Kind = 'gh-tag'; Urls = (Get-GitHubApiMirrors "https://api.github.com/repos/$($c.repo)/releases/latest"); Name = '' } }
     }
     $nodeFile = Get-CachePath $CacheDir 'node'
     $nodeCached = $null
     if ($Manifest -and $Manifest.node) { $nodeCached = [string]$Manifest.node.version }
     if ((Test-Path $nodeFile) -or $nodeCached) {
-        $nodeLatest = if ($online) { Get-LatestNodeLts } else { $null }
-        [void]$rows.Add(@{ key = 'node'; name = 'Node.js'; cached = $nodeCached; latest = $nodeLatest; has = (Test-Path $nodeFile) })
+        [void]$rows.Add(@{ key = 'node'; name = 'Node.js'; cached = $nodeCached; latest = $null; has = (Test-Path $nodeFile) })
+        if ($online) { $tasks['node'] = @{ Kind = 'node-lts'; Urls = @('https://nodejs.org/dist/index.json'); Name = '' } }
     }
     foreach ($mn in @('PSReadLine', 'CompletionPredictor')) {
         $cv = Get-CachedModuleVersion $CacheDir $mn
         if ($cv) {
-            $lv = $null
-            if ($online) { try { $lv = [string](Find-Module -Name $mn -ErrorAction Stop).Version } catch { } }
-            [void]$rows.Add(@{ key = $mn; name = $mn; cached = $cv; latest = $lv; has = $true })
+            [void]$rows.Add(@{ key = $mn; name = $mn; cached = $cv; latest = $null; has = $true })
+            if ($online) { $tasks[$mn] = @{ Kind = 'psmodule'; Urls = @(); Name = $mn } }
         }
     }
     if ((Test-Path (Join-Path $CacheDir 'npm\node_modules')) -or (Test-Path (Join-Path $CacheDir 'npm\node_modules.zip'))) {
         [void]$rows.Add(@{ key = 'npm'; name = 'npm 插件'; cached = '(已准备)'; latest = $null; has = $true })
+    }
+
+    # 并行联网查最新版：把原先串行 ~50s（最坏数分钟）压到 ~10s，且等待期间有转圈提示
+    if ($online -and $tasks.Count -gt 0) {
+        $latest = Invoke-ParallelVersionProbe -Tasks $tasks -TimeoutSec 7 -OnProgress {
+            param($spin, $done, $total)
+            Write-Host ("`r       正在联网检查版本 " + $spin + "  ($done/$total)…") -NoNewline -ForegroundColor DarkGray
+        }
+        Write-Host ("`r       版本检查完成                          ") -ForegroundColor DarkGray
+        foreach ($r in $rows) { if ($latest.ContainsKey($r.key)) { $r.latest = $latest[$r.key] } }
     }
 
     $anyNewer = $false
