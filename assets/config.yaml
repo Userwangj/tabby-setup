@@ -163,6 +163,14 @@ qc:
         - name: 全部暂存
           text: git add -A; git status
           appendCR: true
+    - name: Python 环境
+      cmds:
+        - name: 版本检查
+          text: python --version; pip --version
+          appendCR: true
+        - name: 安装依赖
+          text: pip install -r requirements.txt
+          appendCR: true
     - name: 帮助
       cmds:
         - name: 显示功能清单

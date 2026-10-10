@@ -36,7 +36,7 @@
   search-in-browser   选中文本浏览器搜索
 
 [快速命令 - 按 Alt+Q 打开]
-  ADB 设备  |  logcat 日志  |  Git
+  ADB 设备  |  logcat 日志  |  Git  |  Python
 
 [常用快捷键]
   Ctrl+,              打开设置
