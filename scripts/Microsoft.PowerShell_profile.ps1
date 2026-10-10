@@ -14,6 +14,10 @@ if ((Test-Path $ompTheme) -and (Test-Path $ompExe)) {
         $PSVersionTable.PSVersion.Major -ge 6 -and
         (Get-Command Enable-PoshStreaming -ErrorAction SilentlyContinue)) {
         try { Enable-PoshStreaming } catch { }
+        # oh-my-posh 31.x 的 init 脚本只定义 Enable-KeyHandlers 却不调用它。缺了它，回车
+        # 不会把流式渲染状态重置为 NEW，提示符会一直停留在首次渲染（路径与 git 分支
+        # 不再刷新，看起来就像 git 段消失了）。这里显式补上。
+        try { Enable-KeyHandlers } catch { }
     }
 }
 # ==== end oh-my-posh ====

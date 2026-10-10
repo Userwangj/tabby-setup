@@ -366,7 +366,7 @@ oh-my-posh 会在**每条命令后**同步渲染提示符（默认约 90–150 m
   若打字立刻变跟手 → 是提示符渲染；若仍延迟 → 多半是 Tabby 渲染（见下）。
 - **换轻量主题**：用 `omp` 选段数少、**单行**的主题，或去掉 Git 段（Git 仓库内每提示符都要调 `git`）。
 - **调 Tabby 渲染**：`config.yaml` 里 `terminal.scrollbackLines: 10000`（默认 100000 偏大）、`terminal.ligatures: false`，重启 Tabby；必要时更新 Tabby、关闭 `appearance.vibrancy`（模糊/透明在 Windows 上会加大重绘开销）。
-- **异步提示符（已默认开启）**：profile 会调用 oh-my-posh 31 的 `Enable-PoshStreaming`，由常驻 `oh-my-posh serve` 后台进程渲染提示符，省去"每条命令新起进程"的开销、打字更跟手（仅 pwsh 6+ 生效）。想退回同步渲染：设环境变量 `POSH_DISABLE_STREAMING=1`，重开标签页。
+- **异步提示符（已默认开启）**：profile 会调用 oh-my-posh 31 的 `Enable-PoshStreaming`，由常驻 `oh-my-posh serve` 后台进程渲染提示符，省去"每条命令新起进程"的开销、打字更跟手（仅 pwsh 6+ 生效）。注意：oh-my-posh 31.x 的 init 脚本只**导出**、不**调用** `Enable-KeyHandlers`；少了它，回车不会把流式渲染状态重置为 `NEW`，提示符会一直停在**首次渲染**上（路径、Git 分支不再刷新，看起来就像 **Git 段消失**），所以本包 profile 会**同时显式调用 `Enable-KeyHandlers`**——若你手工只配了 `Enable-PoshStreaming`，请把它一并补上。想退回同步渲染：设环境变量 `POSH_DISABLE_STREAMING=1`，重开标签页。
 
 ---
 
