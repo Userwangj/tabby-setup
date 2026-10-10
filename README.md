@@ -307,7 +307,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Theme "Cyberpunk
 - PowerShell profile 部署到 `Documents\WindowsPowerShell\` 与 `Documents\PowerShell\`；若已有自定义 profile，则**追加**一个代码块而不覆盖
 - **打开新的 Tabby 标签页 / 重开 Tabby** 即可看到新提示符（profile 在 PowerShell 启动时加载）
 
-> **安装预览说明**：安装控制台里渲染的是「紧凑版」预览——oh-my-posh 在被管道捕获时探测不到真实终端宽度，会按很大宽度把右侧段右对齐，直接打印到窄窗口就会换行/错位；所以脚本会剥掉 OSC 标题与光标保存/恢复、折叠多余空白，并按当前窗口宽度截断，保证**任何窗口都不会换行**。预览里的**图标是 Nerd Font 私有字形**，普通控制台字体会显示为空白——想在安装时就看清完整图标，请**在 Tabby 里运行 `install.cmd`**（Tabby 已用 JetBrainsMono Nerd Font）；安装完成后在 Tabby 里用 `omp` 选择器可看到**真实终端里的完整效果**。
+> **安装预览说明**：安装时的主题选择与 `omp` 命令**完全一致**——先列出编号菜单，输入编号即**预览该主题**，再 `y/n` 确认（`n` 可回去重选，可循环）。预览**直接用 oh-my-posh 渲染、不捕获输出**，所以能探测到真实控制台宽度、**右对齐与 `omp` 里一模一样**（不再有错位/换行）。预览里的**图标是 Nerd Font 私有字形**，普通控制台字体会显示为空白——想在安装时就看清完整图标，请**在 Tabby 里运行 `install.cmd`**（Tabby 已用 JetBrainsMono Nerd Font）；安装完成后在 Tabby 里用 `omp` 选择器可看到**真实终端里的完整效果**。
 
 ##### 安装后随时换主题：`omp` 选择器
 

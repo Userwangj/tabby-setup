@@ -704,6 +704,41 @@ function Limit-PreviewWidth([string]$Text, [int]$MaxVisible) {
     }
     return ($sb.ToString() + $e + '[0m')
 }
+# 用【裸调用】渲染主题预览：不捕获输出，oh-my-posh 才能探测到真实控制台宽度 → 右对齐正确，
+# 与 omp 命令完全一致（图标仍需 Nerd Font 字体）。
+function Show-OmpPreview([string]$OmpExe, [string]$Name, [string]$ThemesDir) {
+    $f = Join-Path $ThemesDir ($Name + '.omp.json')
+    if (-not (Test-Path $f)) { return }
+    Write-Host ''
+    Write-Host ('  ── 预览: ' + $Name + ' ──') -ForegroundColor DarkGray
+    Write-Host ''
+    if ($OmpExe) {
+        $redirected = $true
+        try { $redirected = [Console]::IsOutputRedirected } catch { }
+        if (-not $redirected) {
+            # 真实控制台：裸调用（oh-my-posh 自行探测宽度，真实右对齐）
+            & $OmpExe print primary --config $f --shell pwsh
+        } else {
+            # 输出被重定向（管道/非交互）：退回“捕获 + 清理 + 按宽截断”，保证不换行
+            $esc = [char]27; $bel = [char]7
+            $oscRe = ($esc + '\][^' + $bel + $esc + ']*(?:' + $bel + '|' + $esc + '\\)')
+            $consoleW = 120
+            try { $consoleW = [int]$Host.UI.RawUI.WindowSize.Width } catch { }
+            if ($consoleW -lt 40) { $consoleW = 120 }
+            $pv = & $OmpExe print primary --config $f --shell pwsh 2>$null
+            if ($pv) {
+                $pv = [regex]::Replace($pv, $oscRe, '')
+                $pv = [regex]::Replace($pv, ($esc + '[78]'), '')
+                $pv = [regex]::Replace($pv, ' {2,}', ' ')
+                $pv = Limit-PreviewWidth $pv ($consoleW - 2)
+                Write-Host $pv
+            }
+        }
+    }
+    Write-Host ''
+}
+
+# 安装时选择 oh-my-posh 提示符主题：交互与 omp 命令一致（菜单 → 预览一个 → y/n 确认 → 可循环）。
 function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     if (-not $ThemesDir) { Warn '       未找到 oh-my-posh 主题目录，保持默认 atomic'; return }
     if ($OmpTheme) {
@@ -712,54 +747,46 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
         return
     }
     if ($AutoYes) { return }   # 非交互：保持默认 atomic
-    Write-Host ''
-    Write-Host '  ========== Choose an oh-my-posh prompt theme ==========' -ForegroundColor Cyan
-    Write-Host ''
-    $map = @(); $i = 0
-    # 预览渲染要点：
-    # 1) oh-my-posh print 输出 UTF-8 + Nerd Font 字形；PS 5.1 默认按系统编码(GBK)解码
-    #    原生命令输出会乱码 → 预览期间临时切 UTF-8，结束恢复；
-    # 2) 被管道捕获时 oh-my-posh 探测不到终端宽度，会按很大的宽度做右对齐（大段空白），
-    #    打印到窄控制台就会换行/错位 → 剥掉 OSC 标题与光标保存/恢复，并把大段空白折叠成
-    #    单个空格，预览顶格输出，任何窗口宽度都不再换行。
-    $esc = [char]27; $bel = [char]7
-    $oscRe = ($esc + '\][^' + $bel + $esc + ']*(?:' + $bel + '|' + $esc + '\\)')
-    # 终端宽度（保留 2 列余量），预览超宽时按可见宽度截断
-    $consoleW = 120
-    try { $consoleW = [int]$Host.UI.RawUI.WindowSize.Width } catch { }
-    if ($consoleW -lt 40) { $consoleW = 120 }
-    $maxVis = $consoleW - 2
+
+    $map = @()
+    foreach ($k in $OmpCurated.Keys) {
+        if (Test-Path (Join-Path $ThemesDir ($k + '.omp.json'))) { $map += $k }
+    }
+    if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
+
+    $cur = 'atomic'
+    try { $tf = Join-Path $BinDir 'oh-my-posh.theme.txt'; if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $cur = $t } } } catch { }
+
+    # 预览需临时把控制台切 UTF-8（PS 5.1 默认按 GBK 解码原生命令输出会乱码），结束恢复
     $prevOutEnc = [Console]::OutputEncoding
     try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
     try {
-        foreach ($k in $OmpCurated.Keys) {
-            $f = Join-Path $ThemesDir ($k + '.omp.json')
-            if (-not (Test-Path $f)) { continue }
-            $i++; $map += $k
-            Write-Host ("    [{0,2}] {1,-22} {2}" -f $i, $k, $OmpCurated[$k]) -ForegroundColor White
-            if ($OmpExe) {
-                try {
-                    $pv = & $OmpExe print primary --config $f --shell pwsh --terminal-width 110 2>$null
-                    if ($pv) {
-                        $pv = [regex]::Replace($pv, $oscRe, '')
-                        $pv = [regex]::Replace($pv, ($esc + '[78]'), '')
-                        $pv = [regex]::Replace($pv, ' {2,}', ' ')
-                        $pv = Limit-PreviewWidth $pv $maxVis
-                        Write-Host $pv
-                    }
-                } catch { }
+        Write-Host ''
+        Write-Host '  ========== oh-my-posh 提示符主题 ==========' -ForegroundColor Cyan
+        while ($true) {
+            Write-Host ''
+            for ($j = 0; $j -lt $map.Count; $j++) {
+                $star = ''
+                if ($map[$j] -eq $cur) { $star = '   *当前' }
+                Write-Host ("    [{0,2}] {1,-22} {2}{3}" -f ($j + 1), $map[$j], $OmpCurated[$map[$j]], $star) -ForegroundColor White
+            }
+            Write-Host ''
+            Write-Host '    输入编号即预览（回车不会选择）；q 使用当前/默认主题。' -ForegroundColor DarkGray
+            Write-Host '    提示：预览里的图标需要 Nerd Font 字体；在 Tabby 里运行可看完整效果。' -ForegroundColor DarkGray
+            $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
+            $allowed += 'q'
+            $ans = Read-Choice -Prompt ("  选择 omp 主题 1-$($map.Count) / q") -Allowed $allowed -DefaultOnFail '1'
+            if ($ans -eq 'q') { return }
+            $name = $map[[int]$ans - 1]
+            Show-OmpPreview $OmpExe $name $ThemesDir
+            $yn = Read-Choice -Prompt ("  应用主题 $name ? [y/n]（n 重新选择）") -Allowed @('y', 'n') -DefaultOnFail 'y'
+            if ($yn -eq 'y') {
+                if (Apply-OmpTheme $name $ThemesDir) { Ok ("       omp 主题: $name") }
+                else { Warn ("       应用失败: $name，保持默认 atomic") }
+                return
             }
         }
     } finally { try { [Console]::OutputEncoding = $prevOutEnc } catch { } }
-    Write-Host ''
-    if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
-    Write-Host '  提示：预览里的图标需要 Nerd Font 字体；在 Tabby 里运行可看完整效果。' -ForegroundColor DarkGray
-    Write-Host ''
-    $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
-    $ans = Read-Choice -Prompt ("  选择 omp 主题 1-$($map.Count)") -Allowed $allowed -DefaultOnFail '1'
-    $name = $map[[int]$ans - 1]
-    if (Apply-OmpTheme $name $ThemesDir) { Ok ("       omp 主题: $name") }
-    else { Warn ("       应用失败: $name，保持默认 atomic") }
 }
 
 # --- 6/9. oh-my-posh prompt (install + deploy theme + profile) ---
