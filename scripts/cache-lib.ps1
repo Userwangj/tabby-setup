@@ -298,12 +298,22 @@ function Get-FileWithProgress {
     )
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $req = [System.Net.HttpWebRequest]::Create($Url)
-        $req.UserAgent = 'tabby-setup'
-        $req.Timeout = $TimeoutSec * 1000
-        $req.ReadWriteTimeout = $TimeoutSec * 1000
-        $req.AllowAutoRedirect = $true
-        $resp = $req.GetResponse()
+        $resp = $null
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                $req = [System.Net.HttpWebRequest]::Create($Url)
+                $req.UserAgent = 'tabby-setup'
+                $req.Timeout = $TimeoutSec * 1000
+                $req.ReadWriteTimeout = $TimeoutSec * 1000
+                $req.AllowAutoRedirect = $true
+                try { $req.ServicePoint.Expect100Continue = $false } catch { }
+                $resp = $req.GetResponse()
+                break
+            } catch {
+                if ($attempt -ge 3) { throw }
+                Start-Sleep -Seconds (2 * $attempt)
+            }
+        }
         $total = $resp.ContentLength
         if ($total -le 0 -and $ExpectedBytes -gt 0) { $total = $ExpectedBytes }
         $in = $resp.GetResponseStream()
@@ -371,7 +381,7 @@ function Get-FileWithProgress {
         if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Download error: $($_.Exception.Message)" }
         # 最后兜底：curl（静默），应对个别 URL 的 TLS/代理握手问题
         try {
-            curl.exe -L -s -m $TimeoutSec -o $OutFile $Url
+            curl.exe -L -s -m $TimeoutSec --retry 3 --retry-delay 2 -o $OutFile $Url
             if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 0) -and ($MinBytes -le 0 -or (Get-Item $OutFile).Length -ge $MinBytes)) { return $true }
         } catch { }
         return $false
