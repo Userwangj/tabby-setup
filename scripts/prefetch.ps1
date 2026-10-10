@@ -56,9 +56,8 @@ if (Want 'tabby') {
     else {
         $dst = Get-CachePath $CacheDir 'tabby'
         $ok = $false
-        foreach ($u in @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)) {
-            if (Get-FileWithProgress -Url $u -OutFile $dst -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 900 -Activity "Tabby $tag" -LogFile $dlLog) { $ok = $true; break }
-        }
+        $urls = @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)
+        if (Get-FileFromMirrors -Urls $urls -OutFile $dst -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 900 -Activity "Tabby $tag" -LogFile $dlLog) { $ok = $true }
         if ($ok) { Set-ManifestEntry $CacheDir 'tabby' $tag $asset.name; Ok "  已准备 Tabby $tag"; $results['Tabby'] = $tag }
         else { Warn '  下载失败'; $results['Tabby'] = '失败' }
     }
@@ -76,7 +75,7 @@ if (Want 'font') {
         'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
     )
     $ok = $false
-    foreach ($u in $urls) { if (Get-FileWithProgress -Url $u -OutFile $dst -MinBytes 25MB -TimeoutSec 600 -Activity 'JetBrainsMono NF' -LogFile $dlLog) { $ok = $true; break } }
+    if (Get-FileFromMirrors -Urls $urls -OutFile $dst -MinBytes 25MB -TimeoutSec 600 -Activity 'JetBrainsMono NF' -LogFile $dlLog) { $ok = $true }
     if ($ok -and -not (Test-ZipFile $dst)) { Warn '  字体包校验失败（不完整）'; $ok = $false }
     $ver = if ($tag) { $tag } else { 'latest' }
     if ($ok) { Set-ManifestEntry $CacheDir 'font' $ver 'JetBrainsMono.zip'; Ok "  已准备 字体 $ver"; $results['字体'] = $ver }
@@ -92,9 +91,8 @@ if (Want 'node') {
     else {
         $dst = Get-CachePath $CacheDir 'node'
         $ok = $false
-        foreach ($u in @("https://registry.npmmirror.com/-/binary/node/$ver/node-$ver-win-x64.zip", "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip")) {
-            if (Get-FileWithProgress -Url $u -OutFile $dst -MinBytes 10MB -TimeoutSec 600 -Activity "Node.js $ver" -LogFile $dlLog) { $ok = $true; break }
-        }
+        $urls = @("https://registry.npmmirror.com/-/binary/node/$ver/node-$ver-win-x64.zip", "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip")
+        if (Get-FileFromMirrors -Urls $urls -OutFile $dst -MinBytes 10MB -TimeoutSec 600 -Activity "Node.js $ver" -LogFile $dlLog) { $ok = $true }
         if ($ok -and -not (Test-ZipFile $dst)) { Warn '  Node.js 包校验失败（不完整）'; $ok = $false }
         if ($ok) { Set-ManifestEntry $CacheDir 'node' $ver "node-$ver-win-x64.zip"; Ok "  已准备 Node.js $ver"; $results['Node'] = $ver }
         else { Warn '  下载失败'; $results['Node'] = '失败' }
@@ -112,9 +110,8 @@ if (Want 'pwsh') {
         $dst = Get-CachePath $CacheDir 'pwsh'
         $gh = "https://github.com/PowerShell/PowerShell/releases/download/v$ver/PowerShell-$ver.msixbundle"
         $ok = $false
-        foreach ($u in @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)) {
-            if (Get-FileWithProgress -Url $u -OutFile $dst -MinBytes 50MB -TimeoutSec 900 -Activity "PowerShell $ver" -LogFile $dlLog) { $ok = $true; break }
-        }
+        $purls = @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)
+        if (Get-FileFromMirrors -Urls $purls -OutFile $dst -MinBytes 50MB -TimeoutSec 900 -Activity "PowerShell $ver" -LogFile $dlLog) { $ok = $true }
         if ($ok -and -not (Test-ZipFile $dst)) { Warn '  PowerShell MSIX 校验失败（不完整）'; $ok = $false }
         if ($ok) { Set-ManifestEntry $CacheDir 'pwsh' $ver "PowerShell-$ver.msixbundle"; Ok "  已准备 PowerShell $ver"; $results['PowerShell'] = $ver }
         else { Warn '  下载失败'; $results['PowerShell'] = '失败' }
@@ -145,15 +142,13 @@ if (Want 'omp') {
     else {
         $dstExe = Get-CachePath $CacheDir 'omp'
         $ok = $false
-        foreach ($u in @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)) {
-            if (Get-FileWithProgress -Url $u -OutFile $dstExe -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity "oh-my-posh $tag" -LogFile $dlLog) { $ok = $true; break }
-        }
+        $exeUrls = @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)
+        if (Get-FileFromMirrors -Urls $exeUrls -OutFile $dstExe -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity "oh-my-posh $tag" -LogFile $dlLog) { $ok = $true }
         # 主题包（可选，供 omp 预览全部主题用）
         if ($assetThemes) {
             $dstTh = Get-CachePath $CacheDir 'ompthemes'
-            foreach ($u in @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)) {
-                if (Get-FileWithProgress -Url $u -OutFile $dstTh -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes' -LogFile $dlLog) { break }
-            }
+            $thUrls = @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)
+            [void](Get-FileFromMirrors -Urls $thUrls -OutFile $dstTh -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes' -LogFile $dlLog)
         }
         if ($ok) { Set-ManifestEntry $CacheDir 'omp' $tag $assetExe.name; Ok "  已准备 oh-my-posh $tag"; $results['oh-my-posh'] = $tag }
         else { Warn '  下载失败'; $results['oh-my-posh'] = '失败' }

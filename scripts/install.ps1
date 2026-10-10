@@ -293,10 +293,8 @@ if ($tabbyExe) {
             }
             if ($asset) {
                 $out = Get-CachePath $CacheDir 'tabby'
-                foreach ($u in @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)) {
-                    Warn "       Downloading: $u"
-                    if (Get-FileWithProgress -Url $u -OutFile $out -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 600 -Activity 'Tabby') { break }
-                }
+                $urls = @("https://ghfast.top/$($asset.browser_download_url)", "https://gh-proxy.com/$($asset.browser_download_url)", $asset.browser_download_url)
+                [void](Get-FileFromMirrors -Urls $urls -OutFile $out -MinBytes 40MB -ExpectedBytes $asset.size -TimeoutSec 600 -Activity 'Tabby')
                 if ((Test-Path $out) -and ((Get-Item $out).Length -gt 40MB)) {
                     Set-ManifestEntry $CacheDir 'tabby' ([string]$rel.tag_name) $asset.name
                     $setup = $out
@@ -362,10 +360,7 @@ if ($installedFonts -match 'JetBrainsMono Nerd Font Mono') {
             'https://gh-proxy.com/https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip',
             'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip'
         )
-        foreach ($u in $urls) {
-            Warn "       Downloading: $u"
-            if (Get-FileWithProgress -Url $u -OutFile $tmpZip -MinBytes 25MB -TimeoutSec 300 -Activity 'JetBrainsMono NF') { break }
-        }
+        [void](Get-FileFromMirrors -Urls $urls -OutFile $tmpZip -MinBytes 25MB -TimeoutSec 300 -Activity 'JetBrainsMono NF')
         if ((Test-Path $tmpZip) -and ((Get-Item $tmpZip).Length -gt 25MB) -and (Test-ZipFile $tmpZip)) {
             Copy-Item $tmpZip (Get-CachePath $CacheDir 'font') -Force -ErrorAction SilentlyContinue
             $tag = Get-LatestGitHubTag 'ryanoasis/nerd-fonts'; if (-not $tag) { $tag = 'latest' }
@@ -443,10 +438,8 @@ if (-not $pwshExe -or $installOwnPwsh) {
                 $ver = ([string]$tag).TrimStart('v')
                 $out = Get-CachePath $CacheDir 'pwsh'
                 $gh = "https://github.com/PowerShell/PowerShell/releases/download/v$ver/PowerShell-$ver.msixbundle"
-                foreach ($u in @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)) {
-                    Warn "       Downloading: $u"
-                    if (Get-FileWithProgress -Url $u -OutFile $out -MinBytes 50MB -TimeoutSec 900 -Activity 'Downloading PowerShell 7') { break }
-                }
+                $purls = @("https://ghfast.top/$gh", "https://gh-proxy.com/$gh", $gh)
+                [void](Get-FileFromMirrors -Urls $purls -OutFile $out -MinBytes 50MB -TimeoutSec 900 -Activity 'Downloading PowerShell 7')
                 if ((Test-Path $out) -and ((Get-Item $out).Length -gt 50MB)) {
                     Set-ManifestEntry $CacheDir 'pwsh' $ver "PowerShell-$ver.msixbundle"
                     $msix = $out
@@ -556,17 +549,14 @@ if (-not $omp -or $installOwnOmp) {
                         $assetThemes = $rel.assets | Where-Object { $_.name -eq 'themes.zip' } | Select-Object -First 1
                     }
                     if ($assetExe) {
-                        foreach ($u in @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)) {
-                            Warn "       Downloading: $u"
-                            if (Get-FileWithProgress -Url $u -OutFile $ompExeCache -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity 'oh-my-posh') { break }
-                        }
+                        $ompUrls = @("https://ghfast.top/$($assetExe.browser_download_url)", "https://gh-proxy.com/$($assetExe.browser_download_url)", $assetExe.browser_download_url)
+                        [void](Get-FileFromMirrors -Urls $ompUrls -OutFile $ompExeCache -MinBytes 5MB -ExpectedBytes $assetExe.size -TimeoutSec 600 -Activity 'oh-my-posh')
                         if ((Test-Path $ompExeCache) -and ((Get-Item $ompExeCache).Length -gt 1MB)) {
                             Set-ManifestEntry $CacheDir 'omp' ([string]$rel.tag_name) $assetExe.name
                         }
                         if ($assetThemes) {
-                            foreach ($u in @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)) {
-                                if (Get-FileWithProgress -Url $u -OutFile $ompThemesCache -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes') { break }
-                            }
+                            $themeUrls = @("https://ghfast.top/$($assetThemes.browser_download_url)", "https://gh-proxy.com/$($assetThemes.browser_download_url)", $assetThemes.browser_download_url)
+                            [void](Get-FileFromMirrors -Urls $themeUrls -OutFile $ompThemesCache -MinBytes 100KB -ExpectedBytes $assetThemes.size -TimeoutSec 300 -Activity 'oh-my-posh themes')
                         }
                     }
                 } catch { Warn "       oh-my-posh download failed: $_" }
@@ -701,10 +691,8 @@ if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
                 if (-not $ver) { $ver = 'v22.11.0' }
                 $out = Get-CachePath $CacheDir 'node'
                 $ok = $false
-                foreach ($u in @("https://registry.npmmirror.com/-/binary/node/$ver/node-$ver-win-x64.zip", "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip")) {
-                    Warn "       Downloading: $u"
-                    if (Get-FileWithProgress -Url $u -OutFile $out -MinBytes 10MB -TimeoutSec 600 -Activity 'Node.js') { $ok = $true; break }
-                }
+                $nodeUrls = @("https://registry.npmmirror.com/-/binary/node/$ver/node-$ver-win-x64.zip", "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip")
+                if (Get-FileFromMirrors -Urls $nodeUrls -OutFile $out -MinBytes 10MB -TimeoutSec 600 -Activity 'Node.js') { $ok = $true }
                 if ($ok) {
                     Set-ManifestEntry $CacheDir 'node' $ver "node-$ver-win-x64.zip"
                     $nodeZip = $out

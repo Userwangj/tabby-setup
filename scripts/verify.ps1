@@ -27,12 +27,11 @@ Write-Host '[2/3] 真实下载实时进度（oh-my-posh 主题包，约 148 KB�
 $tmp = Join-Path $env:TEMP 'verify-omp-themes.zip'
 $ver  = 'v31.6.0'
 $ok = $false
-foreach ($u in @(
+$vurls = @(
         "https://ghfast.top/https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/$ver/themes.zip",
         "https://gh-proxy.com/https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/$ver/themes.zip",
-        "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/$ver/themes.zip")) {
-    if (Get-FileWithProgress -Url $u -OutFile $tmp -MinBytes 50KB -Activity 'verify 下载') { $ok = $true; break }
-}
+        "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/$ver/themes.zip")
+if (Get-FileFromMirrors -Urls $vurls -OutFile $tmp -MinBytes 50KB -Activity 'verify 下载') { $ok = $true }
 if ($ok) {
     Write-Host ('  真实下载：正常（' + [math]::Round((Get-Item $tmp).Length / 1KB, 1) + ' KB）')
 } else {

@@ -309,7 +309,8 @@ function Get-FileWithProgress {
         [int]$TimeoutSec = 900,
         [string]$Activity = 'Downloading',
         [long]$ExpectedBytes = 0,
-        [string]$LogFile = ''
+        [string]$LogFile = '',
+        [switch]$MirrorMode
     )
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -379,23 +380,28 @@ function Get-FileWithProgress {
         if ($LogFile -and (Test-Path $OutFile)) {
             Add-Content -Path $LogFile -Value ("$((Get-Date).ToString('HH:mm:ss'))  DONE   $Activity  $([math]::Round((Get-Item $OutFile).Length / 1MB, 1)) MB") -Encoding UTF8 -ErrorAction SilentlyContinue
         }
-        if (-not (Test-Path $OutFile)) { return $false }
+        if (-not (Test-Path $OutFile)) { $script:LastDownloadError = '文件未生成'; return $false }
         $len = (Get-Item $OutFile).Length
         if ($total -gt 0 -and $len -ne $total) {
-            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Incomplete download ($([math]::Round($len/1MB,1)) / $([math]::Round($total/1MB,1)) MB)" }
+            $script:LastDownloadError = ("Incomplete download ($([math]::Round($len/1MB,1)) / $([math]::Round($total/1MB,1)) MB)")
+            if (-not $MirrorMode -and (Get-Command Warn -ErrorAction SilentlyContinue)) { Warn "       $($script:LastDownloadError)" }
             Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             return $false
         }
         if ($ExpectedBytes -gt 0 -and $len -ne $ExpectedBytes) {
-            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Size mismatch (got $len, expected $ExpectedBytes bytes)" }
+            $script:LastDownloadError = ("Size mismatch (got $len, expected $ExpectedBytes bytes)")
+            if (-not $MirrorMode -and (Get-Command Warn -ErrorAction SilentlyContinue)) { Warn "       $($script:LastDownloadError)" }
             Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             return $false
         }
-        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue; return $false }
+        if ($MinBytes -gt 0 -and $len -lt $MinBytes) { $script:LastDownloadError = ("文件过小（$len 字节）"); Remove-Item $OutFile -Force -ErrorAction SilentlyContinue; return $false }
         return $true
     } catch {
-        try { Complete-LiveProgress "   $Activity   失败" } catch { }
-        if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Download error: $($_.Exception.Message)" }
+        $script:LastDownloadError = $_.Exception.Message
+        if (-not $MirrorMode) {
+            try { Complete-LiveProgress "   $Activity   失败" } catch { }
+            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn "       Download error: $($_.Exception.Message)" }
+        }
         # 最后兜底：curl（静默），应对个别 URL 的 TLS/代理握手问题
         try {
             curl.exe -L -s -m $TimeoutSec --retry 3 --retry-delay 2 -o $OutFile $Url
@@ -405,6 +411,36 @@ function Get-FileWithProgress {
         Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
         return $false
     }
+}
+
+# ---- 多镜像下载：逐个尝试，失败时提示「切换下一个镜像」 ----
+function Get-FileFromMirrors {
+    param(
+        [string[]]$Urls,
+        [string]$OutFile,
+        [long]$MinBytes = 0,
+        [long]$ExpectedBytes = 0,
+        [int]$TimeoutSec = 600,
+        [string]$Activity = 'Download',
+        [string]$LogFile = ''
+    )
+    $list = @($Urls)
+    $n = $list.Count
+    for ($i = 0; $i -lt $n; $i++) {
+        $u = $list[$i]
+        if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       Downloading ({0}/{1}): {2}" -f ($i + 1), $n, $u) }
+        if (Get-FileWithProgress -Url $u -OutFile $OutFile -MinBytes $MinBytes -ExpectedBytes $ExpectedBytes -TimeoutSec $TimeoutSec -Activity $Activity -LogFile $LogFile -MirrorMode) {
+            return $true
+        }
+        if (($i + 1) -lt $n) {
+            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       镜像 {0}/{1} 不可用，切换下一个…" -f ($i + 1), $n) }
+        } else {
+            $reason = ''
+            if ($script:LastDownloadError) { $reason = "。最后错误：$($script:LastDownloadError)" }
+            if (Get-Command Warn -ErrorAction SilentlyContinue) { Warn ("       所有镜像均无法下载（共 {0} 个）{1}" -f $n, $reason) }
+        }
+    }
+    return $false
 }
 
 # ---- manifest ----
