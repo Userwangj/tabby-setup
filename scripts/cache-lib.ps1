@@ -516,6 +516,32 @@ function Set-ManifestEntry {
     Save-CacheManifest $CacheDir $m
 }
 
+# ---- 交互式“显式选择”：必须输入 Allowed 之一；回车/无效会重问，防止误触回车 ----
+# 返回小写后的选项字符串；连续 MaxTries 次无效则返回 DefaultOnFail（默认取 Allowed[0]）。
+function Read-Choice {
+    param(
+        [Parameter(Mandatory)][string]$Prompt,
+        [Parameter(Mandatory)][string[]]$Allowed,
+        [string]$DefaultOnFail = '',
+        [int]$MaxTries = 5
+    )
+    if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
+    $allowedTxt = ($Allowed -join ' / ')
+    for ($i = 0; $i -lt $MaxTries; $i++) {
+        $ans = ''
+        try { $ans = Read-Host $Prompt } catch { $ans = '' }
+        $v = ([string]$ans).Trim().ToLowerInvariant()
+        if ($Allowed -contains $v) { return $v }
+        if ([string]::IsNullOrWhiteSpace($v)) {
+            Write-Host ('   请直接输入 ' + $allowedTxt + '（不要直接回车）。') -ForegroundColor Yellow
+        } else {
+            Write-Host ('   无效输入，请输入 ' + $allowedTxt + '。') -ForegroundColor Yellow
+        }
+    }
+    Write-Host ('   多次无效输入，默认按 ' + $DefaultOnFail + ' 处理。') -ForegroundColor Yellow
+    return $DefaultOnFail
+}
+
 # ---- 缓存文件路径 ----
 function Get-CachePath {
     param([string]$CacheDir, [string]$Key)
@@ -809,7 +835,7 @@ function Invoke-VersionCheck {
     Write-Host '   [1] * 全部使用已准备版本（推荐：离线、秒装）'
     Write-Host '   [2]   只在线更新「有更新」的组件，其余用已准备版本'
     Write-Host '   [3]   逐个选择'
-    $choice = if ($Yes) { '1' } else { Read-Host '  选择 1-3 (Enter = 1)' }
+    $choice = if ($Yes) { '1' } else { Read-Choice -Prompt '  选择 1-3' -Allowed @('1', '2', '3') -DefaultOnFail '1' }
 
     if ($choice -eq '2') {
         # 只有「有更新」的组件才联网下最新；已是最新的用缓存（无文件时 Resolve-Source 会自动回退联网）
@@ -830,7 +856,7 @@ function Invoke-VersionCheck {
             Write-Host ''
             Write-Host ("  " + $r.name + ": 已准备 " + $r.cached + " / 最新 " + $r.latest) -ForegroundColor Cyan
             Write-Host '   [1] 用已准备版本（推荐）   [2] 在线下最新（慢）   [3] 跳过'
-            $a = Read-Host '   选择 1-3 (Enter = 1)'
+            $a = Read-Choice -Prompt '   选择 1-3' -Allowed @('1', '2', '3') -DefaultOnFail '1'
             if ($a -eq '2') { $pref[$r.key] = 'latest' }
             elseif ($a -eq '3') { $pref[$r.key] = 'skip' }
             else { $pref[$r.key] = 'cache' }

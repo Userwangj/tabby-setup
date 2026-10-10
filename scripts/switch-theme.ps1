@@ -11,6 +11,32 @@
 
 $ErrorActionPreference = 'Continue'
 $Esc = [char]27
+
+# ---- 显式选择：必须输入 Allowed 之一；回车/无效会重问，防止误触回车 ----
+function Read-Choice {
+    param(
+        [Parameter(Mandatory)][string]$Prompt,
+        [Parameter(Mandatory)][string[]]$Allowed,
+        [string]$DefaultOnFail = '',
+        [int]$MaxTries = 5
+    )
+    if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
+    $allowedTxt = ($Allowed -join ' / ')
+    for ($i = 0; $i -lt $MaxTries; $i++) {
+        $ans = ''
+        try { $ans = Read-Host $Prompt } catch { $ans = '' }
+        $v = ([string]$ans).Trim().ToLowerInvariant()
+        if ($Allowed -contains $v) { return $v }
+        if ([string]::IsNullOrWhiteSpace($v)) {
+            Write-Host ('   请直接输入 ' + $allowedTxt + '（不要直接回车）。') -ForegroundColor Yellow
+        } else {
+            Write-Host ('   无效输入，请输入 ' + $allowedTxt + '。') -ForegroundColor Yellow
+        }
+    }
+    Write-Host ('   多次无效输入，默认按 ' + $DefaultOnFail + ' 处理。') -ForegroundColor Yellow
+    return $DefaultOnFail
+}
+
 $cfg = Join-Path $env:APPDATA 'tabby\config.yaml'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 
@@ -159,8 +185,9 @@ for ($i = 0; $i -lt $Themes.Count; $i++) {
 Write-Host '    [0] Cancel (preview only, no change)' -ForegroundColor DarkGray
 Write-Host ''
 
-$ans = ''
-try { $ans = Read-Host '  Enter number to APPLY (0 = cancel)' } catch { $ans = '0' }
+$allowed = @('0')
+for ($i = 1; $i -le $Themes.Count; $i++) { $allowed += [string]$i }
+$ans = Read-Choice -Prompt ("  Enter number to APPLY (1-$($Themes.Count), 0 = cancel)") -Allowed $allowed -DefaultOnFail '0'
 
 if ($ans -match '^\s*\d+\s*$') {
     $n = [int]$ans.Trim()

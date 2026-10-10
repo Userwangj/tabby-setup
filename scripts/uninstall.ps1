@@ -140,11 +140,9 @@ if ($ompPresent -and -not $KeepApps) {
         $hint = if ($ompInstalledByUs -eq $true) { '本包安装/覆盖过' }
                 elseif ($ompPreexisting -eq $true) { '安装前本机已存在，不是本包装的' }
                 else { '来源未知（无安装记录）' }
-        $def = if ($defaultRemoveOmp) { 'Y' } else { 'N' }
-        $ans = ''
-        try { $ans = Read-Host "  检测到 oh-my-posh（$hint）。是否一并卸载？[Y/N]（默认 $def）" } catch { }
-        if ([string]::IsNullOrWhiteSpace($ans)) { $removeOmp = $defaultRemoveOmp }
-        else { $removeOmp = ($ans -match '^\s*[Yy]') }
+        $def = if ($defaultRemoveOmp) { 'y' } else { 'n' }
+        $ans = Read-Choice -Prompt "  检测到 oh-my-posh（$hint）。是否一并卸载？[y/n]" -Allowed @('y', 'n') -DefaultOnFail $def
+        $removeOmp = ($ans -eq 'y')
     }
 }
 
@@ -159,11 +157,9 @@ if ($pwshPresent -and -not $KeepApps) {
         $hint = if ($pwshInstalledByUs -eq $true) { '本包安装/覆盖过' }
                 elseif ($pwshPreexisting -eq $true) { '安装前本机已存在，不是本包装的' }
                 else { '来源未知（无安装记录）' }
-        $def = if ($defaultRemovePwsh) { 'Y' } else { 'N' }
-        $ans = ''
-        try { $ans = Read-Host "  检测到 PowerShell 7（$hint）。是否一并卸载？[Y/N]（默认 $def）" } catch { }
-        if ([string]::IsNullOrWhiteSpace($ans)) { $removePwsh = $defaultRemovePwsh }
-        else { $removePwsh = ($ans -match '^\s*[Yy]') }
+        $def = if ($defaultRemovePwsh) { 'y' } else { 'n' }
+        $ans = Read-Choice -Prompt "  检测到 PowerShell 7（$hint）。是否一并卸载？[y/n]" -Allowed @('y', 'n') -DefaultOnFail $def
+        $removePwsh = ($ans -eq 'y')
     }
 }
 
@@ -207,9 +203,8 @@ Write-Host ''
 if ($DryRun) { Warn '  -DryRun：只显示计划，未做任何修改。'; exit 0 }
 
 if (-not $Yes) {
-    $ans = ''
-    try { $ans = Read-Host '  确认执行卸载？输入 Y 继续（其它任意键取消）' } catch { $ans = '' }
-    if ($ans -notmatch '^\s*[Yy]') { Warn '  已取消，未做任何修改。'; exit 0 }
+    $ans = Read-Choice -Prompt '  确认执行卸载？[y=继续 / n=取消]' -Allowed @('y', 'n') -DefaultOnFail 'n'
+    if ($ans -ne 'y') { Warn '  已取消，未做任何修改。'; exit 0 }
 }
 
 $removed = 0

@@ -70,9 +70,8 @@ function Select-ExistingAction([string]$Name, [string]$Path) {
     Warn  "  检测到本机已安装 $Name：$Path"
     Write-Host '    [1] 保留本机现有版本（不安装本程序版本，且完全不改动它的配置）' -ForegroundColor White
     Write-Host '    [2] 安装本程序的版本  <-- 注意：会覆盖本机相同程序的配置' -ForegroundColor White
-    $ans = ''
-    try { $ans = Read-Host '  选择 [1/2]（默认 1）' } catch { $ans = '' }
-    if ($ans -match '^\s*2\s*$') { return 'ours' }
+    $ans = Read-Choice -Prompt '  选择 1 / 2' -Allowed @('1', '2') -DefaultOnFail '1'
+    if ($ans -eq '2') { return 'ours' }
     return 'keep'
 }
 
@@ -179,17 +178,7 @@ function Invoke-PreDownloads {
         Write-Host '   [1] 逐项预下载缺失离线包（推荐：跳过 winget）'
         Write-Host '   [2] 从 GitHub Release 拉取完整缓存包'
         Write-Host '   [3] 跳过，边装边下'
-        $choice = ''
-        $tries = 0
-        while ($tries -lt 5) {
-            $tries++
-            $ans = ''
-            try { $ans = Read-Host '   选择 1-3' } catch { $ans = '' }
-            if ($ans -match '^\s*([123])\s*$') { $choice = $Matches[1]; break }
-            if ([string]::IsNullOrWhiteSpace($ans)) { Warn '   请直接输入 1、2 或 3（不要直接回车）。' }
-            else { Warn '   无效输入，请输入 1、2 或 3。' }
-        }
-        if (-not $choice) { Warn '   多次无效输入，默认按 [1] 逐项预下载。'; $choice = '1' }
+        $choice = Read-Choice -Prompt '   选择 1-3' -Allowed @('1', '2', '3') -DefaultOnFail '1'
         if ($choice -eq '3') { Warn '  已跳过预下载（将按需在线下载）。'; return }
         if ($choice -eq '2') {
             Info '  从 GitHub Release 拉取完整缓存包 ...'
@@ -293,14 +282,10 @@ function Select-Theme {
         Show-ThemePreview $Themes[$i]
         Write-Host ''
     }
-    $ans = ''
-    try { $ans = Read-Host '  Enter number 1-8 (Enter = default 8: TokyoNight Storm)' } catch { $ans = '' }
-    $idx = $Themes.Count - 1   # default last (TokyoNight Storm)
-    if ($ans -match '^\s*\d+\s*$') {
-        $n = [int]$ans.Trim()
-        if ($n -ge 1 -and $n -le $Themes.Count) { $idx = $n - 1 }
-    }
-    return $Themes[$idx]
+    $allowed = @()
+    for ($i = 1; $i -le $Themes.Count; $i++) { $allowed += [string]$i }
+    $ans = Read-Choice -Prompt ("  选择 1-$($Themes.Count)") -Allowed $allowed -DefaultOnFail ([string]$Themes.Count)
+    return $Themes[[int]$ans - 1]
 }
 
 function Stop-TabbySafe {

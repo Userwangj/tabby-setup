@@ -3,6 +3,31 @@
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
+# ---- 显式选择：必须输入 Allowed 之一；回车/无效会重问，防止误触回车 ----
+function Read-Choice {
+    param(
+        [Parameter(Mandatory)][string]$Prompt,
+        [Parameter(Mandatory)][string[]]$Allowed,
+        [string]$DefaultOnFail = '',
+        [int]$MaxTries = 5
+    )
+    if ([string]::IsNullOrEmpty($DefaultOnFail)) { $DefaultOnFail = $Allowed[0] }
+    $allowedTxt = ($Allowed -join ' / ')
+    for ($i = 0; $i -lt $MaxTries; $i++) {
+        $ans = ''
+        try { $ans = Read-Host $Prompt } catch { $ans = '' }
+        $v = ([string]$ans).Trim().ToLowerInvariant()
+        if ($Allowed -contains $v) { return $v }
+        if ([string]::IsNullOrWhiteSpace($v)) {
+            Write-Host ('   请直接输入 ' + $allowedTxt + '（不要直接回车）。') -ForegroundColor Yellow
+        } else {
+            Write-Host ('   无效输入，请输入 ' + $allowedTxt + '。') -ForegroundColor Yellow
+        }
+    }
+    Write-Host ('   多次无效输入，默认按 ' + $DefaultOnFail + ' 处理。') -ForegroundColor Yellow
+    return $DefaultOnFail
+}
+
 function Find-Omp {
     $cands = @(
         (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\oh-my-posh.exe'),
@@ -124,8 +149,8 @@ while ($true) {
             $nm = $nm.Trim()
             if (-not (Get-ThemePath $nm)) { Write-Host ('  主题不存在: ' + $nm) -ForegroundColor Red; continue }
             Show-Preview $nm
-            $yn = Read-Host ('  应用 ' + $nm + ' ? (y/N)')
-            if ($yn -match '^(y|Y)') { Apply-Theme $nm; $cur = $nm }
+            $yn = Read-Choice -Prompt ('  应用 ' + $nm + ' ? [y/n]') -Allowed @('y', 'n') -DefaultOnFail 'n'
+            if ($yn -eq 'y') { Apply-Theme $nm; $cur = $nm }
         }
         continue
     }
@@ -136,8 +161,8 @@ while ($true) {
             $name = $map[$n - 1]
             if (-not (Get-ThemePath $name)) { Write-Host ('  主题不存在: ' + $name) -ForegroundColor Red; continue }
             Show-Preview $name
-            $yn = Read-Host ('  应用 ' + $name + ' ? (y/N)')
-            if ($yn -match '^(y|Y)') { Apply-Theme $name; $cur = $name }
+            $yn = Read-Choice -Prompt ('  应用 ' + $name + ' ? [y/n]') -Allowed @('y', 'n') -DefaultOnFail 'n'
+            if ($yn -eq 'y') { Apply-Theme $name; $cur = $name }
         }
     }
 }
