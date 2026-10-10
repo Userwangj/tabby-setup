@@ -98,6 +98,23 @@ function Find-Tabby {
     return $null
 }
 
+function Start-DetachedProcess {
+    # 以「脱离当前控制台 + 脱离进程树」的方式启动 GUI 程序。
+    # 目的：避免被启动的程序（如 Tabby）把日志回显到安装窗口；也避免关闭
+    # 安装窗口时把它一起结束。WMI 创建出来的进程父级是 WmiPrvSE，天然脱离
+    # 当前控制台与进程树，最稳；失败再退回 explorer（等同双击）与普通启动。
+    param([Parameter(Mandatory = $true)][string]$Exe)
+    $full = (Resolve-Path -LiteralPath $Exe -ErrorAction SilentlyContinue).Path
+    if (-not $full) { $full = $Exe }
+    try {
+        $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '"' + $full + '"' } -ErrorAction Stop
+        if ($r -and $r.ReturnValue -eq 0) { return $true }
+    } catch { }
+    try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $full + '"') -ErrorAction Stop; return $true } catch { }
+    try { Start-Process -FilePath $full -ErrorAction Stop; return $true } catch { }
+    return $false
+}
+
 function Update-Path {
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 }
@@ -1201,7 +1218,10 @@ try {
     ($state | ConvertTo-Json -Depth 4) | Set-Content -Path (Join-Path $stateDir 'install-state.json') -Encoding UTF8
 } catch { }
 
-if ($tabbyExe) { Start-Process $tabbyExe } else { Warn '       Tabby exe not found - start it manually' }
+if ($tabbyExe) {
+    if (Start-DetachedProcess -Exe $tabbyExe) { Ok "       Tabby started: $tabbyExe" }
+    else { Warn '       Tabby exe not found - start it manually' }
+} else { Warn '       Tabby exe not found - start it manually' }
 Ok '=================================================='
 Ok ' Done! Tabby is configured.'
 Ok '=================================================='
