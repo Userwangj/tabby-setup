@@ -368,6 +368,7 @@ oh-my-posh 会在**每条命令后**同步渲染提示符（默认约 90–150 m
 - **调 Tabby 渲染**：`config.yaml` 里 `terminal.scrollbackLines: 10000`（默认 100000 偏大）、`terminal.ligatures: false`，重启 Tabby；必要时更新 Tabby、关闭 `appearance.vibrancy`（模糊/透明在 Windows 上会加大重绘开销）。
 - **异步提示符（已默认开启）**：profile 会调用 oh-my-posh 31 的 `Enable-PoshStreaming`，由常驻 `oh-my-posh serve` 后台进程渲染提示符，省去"每条命令新起进程"的开销、打字更跟手（仅 pwsh 6+ 生效）。注意：oh-my-posh 31.x 的 init 脚本只**导出**、不**调用** `Enable-KeyHandlers`；少了它，回车不会把流式渲染状态重置为 `NEW`，提示符会一直停在**首次渲染**上（路径、Git 分支不再刷新，看起来就像 **Git 段消失**），所以本包 profile 会**同时显式调用 `Enable-KeyHandlers`**——若你手工只配了 `Enable-PoshStreaming`，请把它一并补上。想退回同步渲染：设环境变量 `POSH_DISABLE_STREAMING=1`，重开标签页。
 - **慢段异步补齐（Git 不再堵打字）**：oh-my-posh 的 streaming 只有主题里设了顶层 `streaming`（毫秒）**才会把超时的段先显示占位符 `...` 再异步补齐**；不设它就等于同步等所有段跑完。本机实测 `git` 进程启动就约 60 ms、Git 段约 70 ms，正是打字延迟主因。本包在**部署 / 切换主题时会自动给主题注入 `"streaming": 30`**（`omp` 选择器与安装时的主题选择都会注入；原主题已有该键则不动）。效果：提示符约 30–40 ms 先出（Git 段暂显 `...`），Git 跑完再原地补上分支名 → 打字不卡。想少闪占位符就调大（如 50）、想更跟手就调小（如 20），改 `%USERPROFILE%\bin\oh-my-posh.omp.json` 顶层 `"streaming"` 值；设为 `0` 或删掉该键＝退回同步渲染（会重新变卡）。
+- **Git 命令加速（默认开启，仅当前 PowerShell 会话）**：Git for Windows 放在 PATH 上的 `D:\...\Git\cmd\git.exe` 其实是**定位包装器**，每次调用都会**多起一个进程**去找真正的 `mingw64\bin\git.exe`（本机实测给 git 段和手动 `git` 都多约 20–25 ms）。profile 会在启动时**把同级的 `mingw64\bin` 插到 `Git\cmd` 之前**（`Git\cmd` 从 PATH 里自动推导，不写死盘符）；`System32` 仍在最前，`curl` 等系统命令不受影响，**只改当前会话、不动系统环境变量**。想关闭：设环境变量 `TABBY_SETUP_GIT_FAST=0`，重开标签页。（想要系统级生效——连 cmd/其他程序也加速——需管理员，可自行把 `D:\...\Git\mingw64\bin` 移到系统 PATH 中 `D:\...\Git\cmd` 之前。）
 
 ---
 
