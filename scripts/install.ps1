@@ -689,15 +689,21 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
     Write-Host '  ========== Choose an oh-my-posh prompt theme ==========' -ForegroundColor Cyan
     Write-Host ''
     $map = @(); $i = 0
-    foreach ($k in $OmpCurated.Keys) {
-        $f = Join-Path $ThemesDir ($k + '.omp.json')
-        if (-not (Test-Path $f)) { continue }
-        $i++; $map += $k
-        Write-Host ("    [{0,2}] {1,-22} {2}" -f $i, $k, $OmpCurated[$k]) -ForegroundColor White
-        if ($OmpExe) {
-            try { $pv = & $OmpExe print primary --config $f --shell pwsh 2>$null; if ($pv) { Write-Host ('         ' + $pv) } } catch { }
+    # oh-my-posh print 输出的是 UTF-8 + Nerd Font 字形；Windows PowerShell 5.1 默认按
+    # 系统编码(GBK)解码原生命令输出 → 中文/图标全乱码。预览期间临时切到 UTF-8，结束恢复。
+    $prevOutEnc = [Console]::OutputEncoding
+    try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+    try {
+        foreach ($k in $OmpCurated.Keys) {
+            $f = Join-Path $ThemesDir ($k + '.omp.json')
+            if (-not (Test-Path $f)) { continue }
+            $i++; $map += $k
+            Write-Host ("    [{0,2}] {1,-22} {2}" -f $i, $k, $OmpCurated[$k]) -ForegroundColor White
+            if ($OmpExe) {
+                try { $pv = & $OmpExe print primary --config $f --shell pwsh 2>$null; if ($pv) { Write-Host ('         ' + $pv) } } catch { }
+            }
         }
-    }
+    } finally { try { [Console]::OutputEncoding = $prevOutEnc } catch { } }
     Write-Host ''
     if ($map.Count -eq 0) { Warn '       未找到可预览的 omp 主题，保持默认 atomic'; return }
     $allowed = @(); for ($j = 1; $j -le $map.Count; $j++) { $allowed += [string]$j }
