@@ -81,14 +81,18 @@ if (-not $gh) { $portable = Join-Path $env:LOCALAPPDATA 'Programs\gh\gh.exe'; if
 if (-not $gh) { Fail '未找到 GitHub CLI (gh)。请先安装并执行 gh auth login。'; exit 1 }
 
 # --- 5. 创建或覆盖上传 ---
+# gh 会向 stderr 输出进度/提示；在 $ErrorActionPreference='Stop' 下原生命令的
+# stderr 会被当成终止错误，故这里临时放宽为 Continue，用 $LASTEXITCODE 判定。
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $exists = $false
-& $gh release view $Tag --repo $Repo *> $null
+& $gh release view $Tag --repo $Repo 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { $exists = $true }
 
 if ($exists) {
     Info (" Release {0} 已存在，上传/覆盖附件 ..." -f $Tag)
     & $gh release upload $Tag --repo $Repo $zip $shaFile --clobber
-    if ($LASTEXITCODE -ne 0) { Fail '附件上传失败。'; exit 1 }
+    $code = $LASTEXITCODE
 } else {
     Info (" 创建 Release {0} 并上传附件 ..." -f $Tag)
     $ghArgs = @('release', 'create', $Tag, '--repo', $Repo, '--title', $Title)
@@ -97,8 +101,10 @@ if ($exists) {
     if ($Prerelease) { $ghArgs += '--prerelease' }
     $ghArgs += @($zip, $shaFile)
     & $gh @ghArgs
-    if ($LASTEXITCODE -ne 0) { Fail 'Release 创建失败。'; exit 1 }
+    $code = $LASTEXITCODE
 }
+$ErrorActionPreference = $prevEAP
+if ($code -ne 0) { Fail '发布失败（gh 返回非 0）。'; exit 1 }
 
 $url = "https://github.com/$Repo/releases/download/$Tag/$($script:CacheBundleName)"
 Ok ''
