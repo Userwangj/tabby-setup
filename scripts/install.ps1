@@ -79,6 +79,8 @@ function Select-ExistingAction([string]$Name, [string]$Path) {
 
 # ---- 离线包共享库（进度下载 / manifest / 版本检查）----
 . (Join-Path $ScriptDir 'cache-lib.ps1')
+# ---- 安装界面（横幅 / 步骤进度 / 汇总）----
+. (Join-Path $ScriptDir 'ui-lib.ps1')
 
 # ---- 运行模式: ask(默认) / cache(-Offline) / online(-Online) ----
 $RunMode = 'ask'
@@ -261,18 +263,8 @@ function Invoke-PreDownloads {
 }
 
 # ---- ANSI true-color helpers (for theme preview) ----
-if (-not ('Win32.ConsoleVT' -as [type])) {
-    try {
-        Add-Type -Namespace Win32 -Name ConsoleVT -MemberDefinition @'
-[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int nStdHandle);
-[DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m);
-[DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);
-'@
-        $h = [Win32.ConsoleVT]::GetStdHandle(-11)
-        $mode = 0
-        if ([Win32.ConsoleVT]::GetConsoleMode($h, [ref]$mode)) { [void][Win32.ConsoleVT]::SetConsoleMode($h, $mode -bor 0x0004) }
-    } catch { }
-}
+# 控制台 VT（真彩色）开启统一由 ui-lib 的 Enable-UiConsole 负责
+Enable-UiConsole
 
 function Hex-ToRgb([string]$hex) {
     $h = $hex.TrimStart('#')
@@ -416,9 +408,19 @@ function Apply-Theme($cfgPath, $theme, $css) {
     Write-ConfigSafe $cfgPath $content
 }
 
-Info '=================================================='
-Info ' Tabby Terminal Setup / Sync'
-Info '=================================================='
+# --- 横幅 + 9 步计划 ---
+Show-UiBanner -Subtitle '终端配置同步 · 一键安装'
+New-UiPlan -Steps @(
+    @{ Index = 1; Title = 'Tabby 终端' },
+    @{ Index = 2; Title = '部署 config.yaml 配置' },
+    @{ Index = 3; Title = 'Neon 配色主题' },
+    @{ Index = 4; Title = 'JetBrainsMono Nerd Font 字体' },
+    @{ Index = 5; Title = 'PowerShell 7 + 智能补全' },
+    @{ Index = 6; Title = 'oh-my-posh 提示符' },
+    @{ Index = 7; Title = 'Node.js + npm 插件' },
+    @{ Index = 8; Title = 'tabbyhelp 等命令' },
+    @{ Index = 9; Title = '启动 Tabby' }
+)
 
 # --- 0. Stop Tabby (config is overwritten on exit) ---
 Stop-TabbySafe
@@ -435,7 +437,7 @@ if ($RunMode -eq 'cache' -and -not (Test-Path $CacheDir)) { Warn '  [离线模�
 if ($RunMode -eq 'ask') { Invoke-PreDownloads -Preference $pref }
 
 # --- 1/9. Install Tabby if missing (cache -> direct download -> winget) ---
-Info '[1/9] Tabby terminal'
+Start-UiStep 1 'Tabby 终端'
 $tabbyExe = Find-Tabby
 if ($tabbyExe) {
     Ok '       Tabby already installed - skip'
@@ -485,23 +487,28 @@ if ($tabbyExe) {
     if ($tabbyExe) { Ok "       Tabby ready: $tabbyExe" }
     elseif ($src -ne 'skip') { Warn '       Tabby could not be installed. Install manually: https://tabby.sh' }
 }
+if ($tabbyExe) { Complete-UiStep 1 }
+elseif ($src -eq 'skip') { Skip-UiStep 1 '未选择安装' }
+else { Fail-UiStep 1 '安装失败，可稍后手动安装' }
 
 # --- 2/7. Deploy config.yaml ---
-Info '[2/9] Deploying config.yaml...'
+Start-UiStep 2 '部署 config.yaml 配置'
 New-Item -ItemType Directory -Path $TabbyDir -Force | Out-Null
 Copy-Item (Join-Path $AssetsDir 'config.yaml') (Join-Path $TabbyDir 'config.yaml') -Force
 Ok '       config.yaml deployed'
+Complete-UiStep 2
 
 # --- 3/7. Neon theme selection (with live preview) ---
-Info '[3/9] Neon color theme'
+Start-UiStep 3 'Neon 配色主题'
 $chosen = $null
 if ($Theme) { $chosen = $Themes | Where-Object { $_.Name -eq $Theme } | Select-Object -First 1 }
 if (-not $chosen) { $chosen = Select-Theme }
 Apply-Theme (Join-Path $TabbyDir 'config.yaml') $chosen $NeonCss
 Ok "       Theme applied: $($chosen.Name)  (accent: $($chosen.Colors[4]))"
+Complete-UiStep 3 $chosen.Name
 
 # --- 4/7. Install JetBrainsMono Nerd Font (user-level) ---
-Info '[4/9] Installing JetBrainsMono Nerd Font...'
+Start-UiStep 4 'JetBrainsMono Nerd Font 字体'
 $fontDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
 $regPath = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
 New-Item -ItemType Directory -Path $fontDir -Force | Out-Null
@@ -553,9 +560,13 @@ if ($installedFonts -match 'JetBrainsMono Nerd Font Mono') {
         Warn '       Font install failed - install JetBrainsMono Nerd Font manually later.'
     }
 }
+if ($installedFonts -match 'JetBrainsMono Nerd Font Mono') { Complete-UiStep 4 '已安装' }
+elseif ($n -gt 0) { Complete-UiStep 4 "已安装 $n 个字体文件" }
+elseif ($src -eq 'skip') { Skip-UiStep 4 }
+else { Fail-UiStep 4 '字体安装失败' }
 
 # --- 5/9. Ensure PowerShell 7 (pwsh) + CompletionPredictor, switch Tabby default shell ---
-Info '[5/9] Ensuring PowerShell 7 (pwsh) for modern completion...'
+Start-UiStep 5 'PowerShell 7 + 智能补全'
 function Find-Pwsh {
     $c = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
     if ($c) { return $c }
@@ -657,6 +668,10 @@ if ($pwshExe) {
 } else {
     Warn '       PowerShell 7 unavailable - staying on Windows PowerShell 5.1'
 }
+if ($pwshExe) {
+    if ($useOwnPwsh) { Complete-UiStep 5 'PowerShell 7 就绪' }
+    else { Complete-UiStep 5 '保留本机版本' }
+} else { Fail-UiStep 5 '未安装，回退 Windows PowerShell 5.1' }
 
 # ---- oh-my-posh 提示符主题选择（与 omp 命令同一套精选主题，带实时预览）----
 $OmpCurated = [ordered]@{
@@ -873,7 +888,7 @@ function Select-OmpTheme([string]$OmpExe, [string]$ThemesDir) {
 }
 
 # --- 6/9. oh-my-posh prompt (install + deploy theme + profile) ---
-Info '[6/9] Setting up oh-my-posh prompt...'
+Start-UiStep 6 'oh-my-posh 提示符'
 $omp = $null
 $ompCmd = Get-Command oh-my-posh -ErrorAction SilentlyContinue
 if ($ompCmd) { $omp = $ompCmd.Source }
@@ -1036,6 +1051,9 @@ if ($deployOmpTheme -or $useOwnPwsh) {
 if ($deployOmpTheme) { Ok '       oh-my-posh prompt deployed - run "omp" to browse cool themes' }
 elseif ($omp)   { Warn '       保留本机 oh-my-posh（未部署本包提示符配置）' }
 else            { Warn '       oh-my-posh not installed - prompt NOT enabled. Install it then re-run.' }
+if ($deployOmpTheme) { Complete-UiStep 6 '提示符主题已部署' }
+elseif ($omp)   { Skip-UiStep 6 '保留本机，未改配置' }
+else            { Fail-UiStep 6 'oh-my-posh 未安装' }
 
 # ensure modern PSReadLine (predictive completion needs >= 2.1; Windows PowerShell 5.1 ships 2.0)
 if ($useOwnPwsh) {
@@ -1068,7 +1086,7 @@ if ($useOwnPwsh) {
 }
 
 # --- 7/9. Ensure Node.js/npm, then install plugins (cache -> winget -> nodejs.org) ---
-Info '[7/9] Installing npm plugins...'
+Start-UiStep 7 'Node.js + npm 插件'
 Update-Path
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     $src = Resolve-Source -Key 'node' -CacheDir $CacheDir -Preference $pref -Mode $RunMode
@@ -1174,9 +1192,11 @@ if ($hasOffline) {
 } else {
     Warn '       Node.js/npm unavailable - plugins NOT installed. Install Node.js then re-run.'
 }
+if (Test-Path (Join-Path $PluginDir 'node_modules')) { Complete-UiStep 7 }
+else { Fail-UiStep 7 'npm 插件未安装' }
 
 # --- 8/9. Create 'tabbyhelp' + 'tabbycolors' + 'tabbytheme' commands ---
-Info '[8/9] Creating tabbyhelp + tabbycolors + tabbytheme commands...'
+Start-UiStep 8 'tabbyhelp 等命令'
 $binDir = Join-Path $env:USERPROFILE 'bin'
 New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 Copy-Item (Join-Path $ScriptDir 'tabbyhelp.cmd') (Join-Path $binDir 'tabbyhelp.cmd') -Force
@@ -1195,9 +1215,10 @@ if (($userPath -split ';') -notcontains $binDir) {
 } else {
     Ok '       tabbyhelp + tabbycolors + tabbytheme created; PATH already contains bin'
 }
+Complete-UiStep 8
 
 # --- 9/9. Start Tabby ---
-Info '[9/9] Starting Tabby...'
+Start-UiStep 9 '启动 Tabby'
 
 # --- 记录安装状态：供 uninstall.ps1 判断哪些程序是本包安装的 ---
 try {
@@ -1219,9 +1240,11 @@ try {
 } catch { }
 
 if ($tabbyExe) {
-    if (Start-DetachedProcess -Exe $tabbyExe) { Ok "       Tabby started: $tabbyExe" }
-    else { Warn '       Tabby exe not found - start it manually' }
-} else { Warn '       Tabby exe not found - start it manually' }
-Ok '=================================================='
+    if (Start-DetachedProcess -Exe $tabbyExe) { Ok "       Tabby started: $tabbyExe"; Complete-UiStep 9 }
+    else { Warn '       Tabby exe not found - start it manually'; Skip-UiStep 9 '未找到可执行文件' }
+} else { Warn '       Tabby exe not found - start it manually'; Skip-UiStep 9 '未找到可执行文件' }
+
+# --- 结果汇总 ---
+Show-UiSummary -Title 'Tabby 配置同步 · 安装结果'
+Set-UiTitle '完成'
 Ok ' Done! Tabby is configured.'
-Ok '=================================================='

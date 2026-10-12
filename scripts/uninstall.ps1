@@ -39,6 +39,7 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RootDir   = Split-Path -Parent $ScriptDir
 . (Join-Path $ScriptDir 'cache-lib.ps1')
+. (Join-Path $ScriptDir 'ui-lib.ps1')
 
 $TabbyDir    = Join-Path $env:APPDATA 'tabby'
 $ConfigPath  = Join-Path $TabbyDir 'config.yaml'
@@ -164,9 +165,18 @@ if ($pwshPresent -and -not $KeepApps) {
 }
 
 # ---- 打印计划 ----
-Info '=================================================='
-Info ' Tabby 配置同步包 · 卸载'
-Info '=================================================='
+Show-UiBanner -Subtitle 'Tabby 配置同步包 · 一键卸载'
+New-UiPlan -Steps @(
+    @{ Index = 1; Title = '关闭 Tabby' },
+    @{ Index = 2; Title = '清理 PowerShell profile' },
+    @{ Index = 3; Title = '删除 tabbyhelp 等命令' },
+    @{ Index = 4; Title = '删除便携版 oh-my-posh' },
+    @{ Index = 5; Title = '移除 CompletionPredictor 模块' },
+    @{ Index = 6; Title = '移除 JetBrainsMono 字体' },
+    @{ Index = 7; Title = '移除 Tabby npm 插件' },
+    @{ Index = 8; Title = '还原 Tabby 配置' },
+    @{ Index = 9; Title = '卸载程序' }
+)
 Write-Host ''
 Step '  将要移除的【个性化设置】：'
 function PItem($ok, $label) { if ($ok) { Write-Host ("    [x] " + $label) } else { Write-Host ("    [ ] " + $label + "  (未发现，跳过)") -ForegroundColor DarkGray } }
@@ -210,11 +220,12 @@ if (-not $Yes) {
 $removed = 0
 
 # ---- 1. 关闭 Tabby ----
-Step '[1/9] 关闭 Tabby...'
+Start-UiStep 1 '关闭 Tabby'
 Invoke-WithSpinner '正在关闭 Tabby...' 'Tabby 已关闭' { Stop-TabbySafe }
+Complete-UiStep 1
 
 # ---- 2. PowerShell profile 中的 oh-my-posh / PSReadLine 块 ----
-Step '[2/9] 清理 PowerShell profile...'
+Start-UiStep 2 '清理 PowerShell profile'
 foreach ($pp in $ProfilePaths) {
     if (-not (Test-Path $pp)) { continue }
     $cur = Get-Text $pp
@@ -238,9 +249,10 @@ foreach ($pp in $ProfilePaths) {
     }
 }
 if ($removed -eq 0) { Warn '       未发现本包写入的 profile 块' }
+if ($removed -gt 0) { Complete-UiStep 2 "$removed 处" } else { Skip-UiStep 2 '未发现' }
 
 # ---- 3. bin 命令 ----
-Step '[3/9] 删除 tabbyhelp / tabbycolors / tabbytheme / omp 命令...'
+Start-UiStep 3 '删除 tabbyhelp 等命令'
 $n = 0
 foreach ($f in $BinFiles) {
     $p = Join-Path $BinDir $f
@@ -253,28 +265,32 @@ if ((Test-Path $BinDir) -and -not (Get-ChildItem $BinDir -Force -ErrorAction Sil
 } else {
     Warn '       bin 目录仍有其它文件，保留目录（未从 PATH 移除）'
 }
+if ($n -gt 0) { Complete-UiStep 3 "$n 个文件" } else { Skip-UiStep 3 '未发现' }
 
 # ---- 4. 便携版 oh-my-posh ----
-Step '[4/9] 便携版 oh-my-posh...'
+Start-UiStep 4 '删除便携版 oh-my-posh'
 if ($ompPortablePresent) {
     Invoke-WithSpinner '正在删除便携版 oh-my-posh...' '便携版 oh-my-posh 已删除' {
         Remove-Item $OmpPortable -Recurse -Force -ErrorAction SilentlyContinue
     }
     if (Remove-FromUserPath $OmpPortable) { Ok '       已从 PATH 移除 oh-my-posh 便携目录' }
+    Complete-UiStep 4
 } else {
     Warn '       未发现便携版目录，跳过'
+    Skip-UiStep 4 '未发现'
 }
 
 # ---- 5. CompletionPredictor ----
-Step '[5/9] 移除 CompletionPredictor 模块...'
+Start-UiStep 5 '移除 CompletionPredictor 模块'
 if ($cpPresent) {
     Remove-Item (Join-Path $env:USERPROFILE 'Documents\PowerShell\Modules\CompletionPredictor') -Recurse -Force -ErrorAction SilentlyContinue
     Ok '       已删除 CompletionPredictor'
-} else { Warn '       未发现，跳过' }
+    Complete-UiStep 5
+} else { Warn '       未发现，跳过'; Skip-UiStep 5 '未发现' }
 
 # ---- 6. 字体 ----
-Step '[6/9] 移除 JetBrainsMono Nerd Font...'
-if ($KeepFont) { Warn '       -KeepFont：保留字体' }
+Start-UiStep 6 '移除 JetBrainsMono 字体'
+if ($KeepFont) { Warn '       -KeepFont：保留字体'; Skip-UiStep 6 '按 -KeepFont 保留' }
 elseif ($fontNames.Count -gt 0) {
     foreach ($name in $fontNames) {
         try {
@@ -285,10 +301,11 @@ elseif ($fontNames.Count -gt 0) {
     }
     Get-ChildItem $FontDir -Filter 'JetBrainsMonoNerdFontMono-*.ttf' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Ok "       已删除 $($fontNames.Count) 个字体样式 + 文件"
-} else { Warn '       未发现，跳过' }
+    Complete-UiStep 6 "$($fontNames.Count) 个样式"
+} else { Warn '       未发现，跳过'; Skip-UiStep 6 '未发现' }
 
 # ---- 7. Tabby npm 插件 ----
-Step '[7/9] 移除 Tabby npm 插件...'
+Start-UiStep 7 '移除 Tabby npm 插件'
 $n = 0
 foreach ($x in @('node_modules', 'package.json', 'package-lock.json', '.tabby-setup-npm.sig')) {
     $p = Join-Path $PluginDir $x
@@ -298,11 +315,11 @@ foreach ($x in @('node_modules', 'package.json', 'package-lock.json', '.tabby-se
         $n++
     }
 }
-if ($n -gt 0) { Ok "       已移除 $n 项" } else { Warn '       未发现，跳过' }
+if ($n -gt 0) { Ok "       已移除 $n 项"; Complete-UiStep 7 "$n 项" } else { Warn '       未发现，跳过'; Skip-UiStep 7 '未发现' }
 
 # ---- 8. Tabby 配置 ----
-Step '[8/9] 还原 Tabby 配置...'
-if ($KeepConfig) { Warn '       -KeepConfig：保留 config.yaml' }
+Start-UiStep 8 '还原 Tabby 配置'
+if ($KeepConfig) { Warn '       -KeepConfig：保留 config.yaml'; Skip-UiStep 8 '按 -KeepConfig 保留' }
 elseif ($hasConfig) {
     $bak = Join-Path $TabbyDir 'config.yaml.uninstalled-bak'
     Copy-Item $ConfigPath $bak -Force -ErrorAction SilentlyContinue
@@ -310,12 +327,14 @@ elseif ($hasConfig) {
     Remove-Item (Join-Path $TabbyDir 'config.yaml.backup') -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $TabbyDir 'config.yaml.tmp') -Force -ErrorAction SilentlyContinue
     Ok "       已移除 config.yaml（备份: $bak），Tabby 下次启动将生成默认配置"
-} else { Warn '       未发现 config.yaml，跳过' }
+    Complete-UiStep 8
+} else { Warn '       未发现 config.yaml，跳过'; Skip-UiStep 8 '未发现' }
 
 # ---- 9. 卸载程序：仅 Tabby（oh-my-posh 按选择）----
-Step '[9/9] 卸载程序...'
+Start-UiStep 9 '卸载程序'
 if ($KeepApps) {
     Warn '       -KeepApps：跳过程序卸载'
+    Skip-UiStep 9 '按 -KeepApps 保留'
 } else {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
 
@@ -380,13 +399,13 @@ if ($KeepApps) {
 
     Write-Host ''
     Warn '  已保留 Node.js / npm（nvm4w 管理，非本包安装）。'
+    Complete-UiStep 9
 }
 
 # 清理安装状态记录
 Remove-Item $StateFile -Force -ErrorAction SilentlyContinue
 
-Write-Host ''
-Ok '=================================================='
+Show-UiSummary -Title 'Tabby 配置同步包 · 卸载结果'
+Set-UiTitle '卸载完成'
 Ok ' 卸载完成。'
-Ok '=================================================='
 Warn '  提示：环境变量 PATH 的变更需新开终端窗口才生效。'

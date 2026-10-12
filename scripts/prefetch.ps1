@@ -21,6 +21,7 @@ $RootDir   = Split-Path -Parent $ScriptDir
 $CacheDir  = Join-Path $RootDir 'cache'
 $AssetsDir = Join-Path $RootDir 'assets'
 . (Join-Path $ScriptDir 'cache-lib.ps1')
+. (Join-Path $ScriptDir 'ui-lib.ps1')
 
 function Info($m) { Write-Host $m -ForegroundColor Cyan }
 function Ok($m)   { Write-Host $m -ForegroundColor Green }
@@ -32,13 +33,10 @@ $manifest = Get-CacheManifest $CacheDir
 $results = [ordered]@{}
 $dlLog = Join-Path $CacheDir 'download.log'
 
-Info '=================================================='
-Info ' 准备离线安装包 (prefetch)'
-Info (" 缓存目录: " + $CacheDir)
-Info (" 进度日志: " + $dlLog)
+Show-UiBanner -Subtitle '准备离线安装包 · prefetch'
+Write-UiColor ("  缓存目录: " + $CacheDir) 'dim'
 $onlyTxt = if ($Only.Count -eq 0) { '全部' } else { $Only -join ', ' }
-Info (" 组件范围: " + $onlyTxt)
-Info '=================================================='
+Write-UiColor ("  组件范围: " + $onlyTxt) 'dim'
 
 # --- Tabby ---
 if (Want 'tabby') {

@@ -2,6 +2,8 @@
 
 本目录是一套**可移植的 Tabby 终端配置**。换新设备时，双击 `install.cmd` 即可自动还原全部个性化设置（主题、字体、插件、快速命令），无需手动重配。
 
+> 安装、卸载、离线包准备都会显示每一步的进度和结果，结束时给出汇总；GBK 控制台或输出被重定向时自动用纯文本。
+
 ---
 
 ## 一、文件清单
@@ -13,6 +15,8 @@ tabby-setup\
 ├── install.cmd          ← 双击 → 安装
 ├── uninstall.cmd        ← 双击 → 卸载（彻底还原）
 ├── README.md            ← 本说明文档
+├── CONVENTIONS.md       ← 文案与显示约定
+├── CHANGELOG.md         ← 修改记录
 ├── cache\               ← 离线安装包（prefetch 生成；整体只有 ~50 个文件）
 ├── scripts\             ← 所有脚本（平时不用管）
 └── assets\              ← 配置模板 / 依赖清单
@@ -32,6 +36,7 @@ tabby-setup\
 | `install.ps1` | 一键同步安装主程序（优先使用离线包） |
 | `uninstall.ps1` | **一键卸载主程序**：撤销 install 的全部改动；默认连程序一起卸载 |
 | `cache-lib.ps1` | 共享库：实时进度条下载 / manifest / 版本比较 / 上游版本探测 / 来源决策 |
+| `ui-lib.ps1` | 共享库：安装横幅 / 步骤进度 / 结果汇总 |
 | `prefetch.cmd` / `prefetch.ps1` | **离线包准备**：把 Tabby/字体/Node/PS7/oh-my-posh/模块/插件全下到 `cache\`（双击 `prefetch.cmd`） |
 | `verify.cmd` / `verify.ps1` | 进度显示自检（演示跑马灯 + 下载进度条 + 解压进度条） |
 | `pack.cmd` / `pack.ps1` | **分发打包**：把整个 `tabby-setup\` 压成单个 `tabby-setup-portable.zip`（双击 `pack.cmd`） |
